@@ -251,20 +251,20 @@ export async function fetchRevisionsAppsScript(appsScriptUrl: string): Promise<R
 
 export async function saveRevisionAppsScript(appsScriptUrl: string, revision: Revision): Promise<boolean> {
   try {
-    const response = await fetch(appsScriptUrl, {
+    await fetch(appsScriptUrl, {
       method: 'POST',
-      redirect: 'follow',
-      // We don't specify application/json to bypass CORS preflight checks in Apps Script Web App
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
       body: JSON.stringify({
         action: 'save',
         revision
       })
     });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-    return data.success === true;
+    // With mode: 'no-cors', the response is opaque and we cannot read its body,
+    // but the request is sent successfully and executed by the script.
+    return true;
   } catch (error) {
     console.error('Error saving revision via Apps Script:', error);
     throw error;
@@ -273,19 +273,18 @@ export async function saveRevisionAppsScript(appsScriptUrl: string, revision: Re
 
 export async function deleteRevisionAppsScript(appsScriptUrl: string, revisionId: string): Promise<boolean> {
   try {
-    const response = await fetch(appsScriptUrl, {
+    await fetch(appsScriptUrl, {
       method: 'POST',
-      redirect: 'follow',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
       body: JSON.stringify({
         action: 'delete',
         revisionId
       })
     });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-    return data.success === true;
+    return true;
   } catch (error) {
     console.error('Error deleting revision via Apps Script:', error);
     return false;

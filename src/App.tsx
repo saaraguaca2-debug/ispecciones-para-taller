@@ -244,6 +244,8 @@ export default function App() {
         setLoadingRevisions(true);
         const success = await saveRevisionAppsScript(appsScriptUrl, updatedRevision);
         if (success) {
+          // Wait for 1200ms to let Google script complete writing to Google Sheets before refreshing list
+          await new Promise(resolve => setTimeout(resolve, 1200));
           await loadSpreadsheetData('apps_script', '');
           setEditingRevision(null);
           setActiveTab('revisions');
@@ -252,7 +254,7 @@ export default function App() {
         }
       } catch (error) {
         console.error(error);
-        alert('Ocurrió un error al guardar usando la Macro de Apps Script. Verifica que esté correctamente implementada (Deploy) y con acceso a "Cualquiera" (Anyone).');
+        alert('Ocurrió un error al procesar el guardado. Si el problema persiste, verifique que la URL de la Macro sea la correcta y que la planilla no esté bloqueada.');
       } finally {
         setLoadingRevisions(false);
       }
@@ -284,6 +286,8 @@ export default function App() {
         setLoadingRevisions(true);
         const success = await deleteRevisionAppsScript(appsScriptUrl, revisionId);
         if (success) {
+          // Wait for 1200ms to allow Google script process to complete before refreshing
+          await new Promise(resolve => setTimeout(resolve, 1200));
           await loadSpreadsheetData('apps_script', '');
         } else {
           alert('La Macro de Apps Script reportó un fallo al eliminar.');
