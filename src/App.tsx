@@ -14,7 +14,7 @@ import SheetConnector from './components/SheetConnector';
 import SettingsPanel from './components/SettingsPanel';
 
 import { getThemeClasses } from './lib/theme';
-import { Loader, AlertTriangle, FileSpreadsheet, LogIn, Lock, Info, Landmark, LayoutDashboard, History, Plus, Sliders } from 'lucide-react';
+import { Loader, AlertTriangle, FileSpreadsheet, LogIn, Lock, Info, Landmark, LayoutDashboard, History, Plus, Sliders, Wrench, ShieldCheck, Gauge, Sparkles, Database, ArrowLeft, Settings, MessageSquare, ChevronRight, Activity, Car, CheckCircle2, Copy, Check } from 'lucide-react';
 
 export default function App() {
   // Google Authentication states
@@ -32,6 +32,7 @@ export default function App() {
   const [inputAppsScriptUrl, setInputAppsScriptUrl] = useState<string>('');
   const [showInstruction, setShowInstruction] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
+  const [onboardingView, setOnboardingView] = useState<'welcome' | 'setup'>('welcome');
 
   // Google Sheet Configuration states
   const [sheetConfig, setSheetConfig] = useState<SpreadsheetConfig | null>(null);
@@ -575,162 +576,254 @@ function doPost(e) {
       setTimeout(() => setCopiedCode(false), 3000);
     };
 
+    if (onboardingView === 'welcome') {
+      return (
+        <div id="login-onboarding-welcome" className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+          {/* Decorative glows */}
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+          <div className="max-w-4xl w-full mx-auto bg-slate-950/80 backdrop-blur-md border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col md:flex-row gap-8 items-center">
+            
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-emerald-500 to-indigo-500"></div>
+
+            {/* Left side: Workshop branding + Graphic Showcase */}
+            <div className="flex-1 space-y-6">
+              <div className="flex items-center gap-3">
+                <span className="p-3 bg-slate-800 border border-slate-755 text-emerald-400 rounded-2xl shadow-inner-lg">
+                  <Wrench className="h-7 w-7 animate-pulse text-emerald-450" />
+                </span>
+                <div>
+                  <span className="text-[10px] uppercase font-black text-emerald-400 tracking-widest bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-900/50">
+                    AutoDiag OS v2.1
+                  </span>
+                  <p className="text-slate-500 text-[11px] font-mono mt-0.5">Diagnósticos Profesionales</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-none">
+                  Gestión integral para tu <span className="text-emerald-400">Taller Mecánico</span>
+                </h1>
+                <p className="text-slate-400 text-xs sm:text-sm leading-relaxed max-w-md font-medium">
+                  Optimiza la recepción de vehículos, marca listas de inspección críticas y genera reportes presupuestados listos para compartir con tus clientes.
+                </p>
+              </div>
+
+              {/* Mini Diagnostic Scanner simulation */}
+              <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-4 font-mono text-xs text-slate-300 space-y-3 relative overflow-hidden shadow-xl">
+                <div className="absolute top-3.5 right-3.5 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
+                  <span className="text-[9px] text-amber-500 uppercase font-black tracking-wider">OBD-II ESCÁNER</span>
+                </div>
+                
+                <p className="text-emerald-400 font-bold border-b border-slate-800 pb-2 flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-emerald-400 animate-bounce" />
+                  <span>PLANILLA DE RECEPCIÓN</span>
+                </p>
+                
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div className="flex items-center gap-1.5 bg-slate-950 p-2 rounded border border-slate-850">
+                    <span className="text-emerald-500 font-extrabold">✔</span>
+                    <span className="text-slate-400 font-medium">Frenos y Suspensión</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-slate-950 p-2 rounded border border-slate-850">
+                    <span className="text-emerald-500 font-extrabold">✔</span>
+                    <span className="text-slate-400 font-medium">Niveles de Fluidos</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-slate-950 p-2 rounded border border-slate-850">
+                    <span className="text-amber-500 font-extrabold">⚠</span>
+                    <span className="text-slate-400 font-medium">Inyección/Electrónica</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-slate-950 p-2 rounded border border-slate-850">
+                    <span className="text-emerald-500 font-extrabold">✔</span>
+                    <span className="text-slate-400 font-medium">Neumáticos & Presión</span>
+                  </div>
+                </div>
+                
+                <div className="text-[9px] text-slate-500 flex justify-between items-center bg-slate-950/70 p-2 rounded border border-slate-850 font-bold">
+                  <span>CENTRO DE CONTROL LOCAL</span>
+                  <span className="text-emerald-500 font-black">DATOS DESCENTRALIZADOS</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right side: Interactive Features & CTA button */}
+            <div className="flex-1 w-full bg-slate-900/40 border border-slate-800/80 p-6 sm:p-8 rounded-2xl flex flex-col justify-between self-stretch space-y-6">
+              <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest flex items-center gap-2 border-b border-slate-800 pb-3">
+                <Sparkles className="h-4 w-4 text-amber-400" />
+                <span>BENEFICIOS CLAVE</span>
+              </h3>
+
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <div className="p-2 bg-emerald-950/50 text-emerald-400 rounded-lg h-9 w-9 shrink-0 flex items-center justify-center border border-emerald-900/30">
+                    <Car className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider">Flujo Vehicular Rápido</h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed mt-0.5">Captura datos del cliente, millaje, placa y avería de forma organizada directamente desde tu celular.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 bg-indigo-950/50 text-indigo-400 rounded-lg h-9 w-9 shrink-0 flex items-center justify-center border border-indigo-900/30">
+                    <FileSpreadsheet className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider">Reportes Profesionales</h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed mt-0.5">Genera listas de verificación, presupuestos estimados y comparte el reporte web con tus clientes.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 bg-purple-950/50 text-purple-400 rounded-lg h-9 w-9 shrink-0 flex items-center justify-center border border-purple-900/30">
+                    <Database className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider">Sincronización Transparente</h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed mt-0.5">Guarda todo en una planilla Google Sheets integrada directamente con Google Apps Script sin límites.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-5 border-t border-slate-800/80 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setOnboardingView('setup')}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3.5 px-4 rounded-xl text-xs shadow-lg shadow-emerald-950/40 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer flex justify-center items-center gap-2"
+                >
+                  <Settings className="h-4.5 w-4.5 animate-spin-slow text-slate-950" />
+                  <span>Configurar Conexión de Datos</span>
+                </button>
+                <p className="text-[9px] text-slate-500 text-center font-bold uppercase tracking-wider">
+                  No requiere tarjetas de crédito ni suscripción • 100% independiente
+                </p>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div id="login-onboarding" className="min-h-screen bg-slate-50/50 flex flex-col justify-center py-6 px-4 sm:px-6 lg:px-8 text-center">
-        <div className="max-w-xl w-full mx-auto bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden text-left">
+      <div id="login-onboarding" className="min-h-screen bg-slate-50/50 flex flex-col justify-center py-6 px-4 sm:px-6 lg:px-8 text-center relative">
+        <div className="max-w-xl w-full mx-auto bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden text-left">
           
           <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-emerald-500 to-teal-600"></div>
 
           <div className="mb-6 flex justify-between items-center">
-            <span className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shadow-inner">
-              <Landmark className="h-6 w-6 text-emerald-600" />
-            </span>
-            <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider bg-slate-100 py-1 px-3 rounded-full">
+            <button
+              type="button"
+              onClick={() => setOnboardingView('welcome')}
+              className="px-3 py-1.5 flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer border border-slate-200"
+            >
+              <ArrowLeft className="h-3.5 w-3.5 font-bold" />
+              <span>Volver</span>
+            </button>
+            <span className="text-[10px] uppercase font-black text-emerald-600 tracking-wider bg-emerald-50 py-1 px-3 rounded-full border border-emerald-100">
               SaaS Automotriz Directo
             </span>
           </div>
 
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-2">
-            Control de Diagnósticos Automotrices
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-2 flex items-center gap-2">
+            <Settings className="h-6 w-6 text-emerald-600 shrink-0" />
+            <span>Configuración de Google Sheets</span>
           </h2>
           <p className="text-slate-500 text-xs leading-relaxed mb-6">
-            Configura cómo guardar los registros del taller en Google Sheets de forma segura.
+            Conecta la planilla de Google de tu taller. Los datos se transmitirán directamente desde la aplicación a tu Google Drive de forma privada y sin intermediarios.
           </p>
 
-          {/* Tab Selection */}
-          <div className="flex border-b border-slate-100 mb-6 font-semibold text-xs">
-            <button
-              onClick={() => setLoginTab('google')}
-              className={`flex-1 pb-3 text-center border-b-2 transition-all ${
-                loginTab === 'google'
-                  ? 'border-emerald-600 text-slate-900 font-extrabold'
-                  : 'border-transparent text-slate-400 font-medium hover:text-slate-600'
-              }`}
-            >
-              Opción 1: Iniciar con Google
-            </button>
-            <button
-              onClick={() => setLoginTab('appsscript')}
-              className={`flex-1 pb-3 text-center border-b-2 transition-all ${
-                loginTab === 'appsscript'
-                  ? 'border-emerald-600 text-slate-900 font-extrabold'
-                  : 'border-transparent text-slate-400 font-medium hover:text-slate-600'
-              }`}
-            >
-              Opción 2: Apps Script (Fácil para Vercel)
-            </button>
-          </div>
-
           {errorAuth && (
-            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-850 text-xs flex gap-2">
+            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-855 text-xs flex gap-2 font-semibold">
               <AlertTriangle className="h-4.5 w-4.5 text-rose-500 shrink-0 mt-0.5" />
               <span>{errorAuth}</span>
             </div>
           )}
 
-          {loginTab === 'google' ? (
-            <div className="space-y-5 animate-fade-in">
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Inicia sesión de manera segura a través de Google OAuth. El sistema utilizará Firebase para autenticación local y sincronizará directamente con la API de Google Sheets seleccionada en tu unidad de Drive.
-              </p>
+          <div className="space-y-5">
+            <p className="text-xs text-slate-500 leading-relaxed font-medium">
+              Pega la URL del ejecutor de <strong>Google Apps Script Web App</strong> para vincular tu planilla de control en segundos.
+            </p>
+
+            <form onSubmit={handleConnectAppsScript} className="space-y-3">
+              <input
+                type="text"
+                placeholder="Pegue la URL ejecutora de Apps Script (debe iniciar con https://script.google.com/.../exec)"
+                value={inputAppsScriptUrl}
+                onChange={(e) => setInputAppsScriptUrl(e.target.value)}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800 font-semibold"
+              />
               
-              {/* Sign in with Google branded custom button */}
               <button
-                onClick={handleLogin}
-                className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-950 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+                type="submit"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 px-4 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer flex justify-center items-center gap-2"
               >
-                <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5 bg-white p-0.5 rounded-full shrink-0">
-                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                  <path fill="none" d="M0 0h48v48H0z"></path>
-                </svg>
-                <span className="text-sm">Iniciar Sesión con Google</span>
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Establecer Conexión de Datos</span>
               </button>
-            </div>
-          ) : (
-            <div className="space-y-5 animate-fade-in">
-              <p className="text-xs text-slate-500 leading-relaxed">
-                <strong>¿No quieres configurar Firebase ni pantallas de Google Cloud?</strong> Conéctalo directamente usando una Macro de Google Apps Script. El navegador se comunicará directo con tu planilla sin necesidad de iniciar sesión.
-              </p>
+            </form>
 
-              <form onSubmit={handleConnectAppsScript} className="space-y-3">
-                <input
-                  type="text"
-                  placeholder="Pegue la URL ejecutora de Apps Script (https://script.google.com/.../exec)"
-                  value={inputAppsScriptUrl}
-                  onChange={(e) => setInputAppsScriptUrl(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800"
-                />
-                
-                <button
-                  type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer"
-                >
-                  Vincular Mediante Apps Script
-                </button>
-              </form>
+            {/* Collapsible Steps */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden mt-2 bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setShowInstruction(!showInstruction)}
+                className="w-full text-left font-bold text-slate-800 text-xs px-4 py-3 bg-slate-100 hover:bg-slate-200/60 flex justify-between items-center transition-colors border-b border-rose-100/10"
+              >
+                <span>📋 Ver Instrucciones de Configuración (3 minutos)</span>
+                <span className="text-[10px] text-emerald-600 font-extrabold">{showInstruction ? '▲ Ocultar' : '▼ Mostrar'}</span>
+              </button>
 
-              {/* Collapsible Steps */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden mt-2 bg-slate-50">
-                <button
-                  type="button"
-                  onClick={() => setShowInstruction(!showInstruction)}
-                  className="w-full text-left font-bold text-slate-800 text-xs px-4 py-3 bg-slate-100 hover:bg-slate-200/60 flex justify-between items-center transition-colors"
-                >
-                  <span>📋 Ver Instrucciones de Configuración (3 minutos)</span>
-                  <span className="text-[10px] text-emerald-600">{showInstruction ? '▲ Ocultar' : '▼ Mostrar'}</span>
-                </button>
-
-                {showInstruction && (
-                  <div className="p-4 space-y-4 max-h-[350px] overflow-y-auto text-xs text-slate-600 leading-relaxed border-t border-slate-200">
-                    <div>
-                      <span className="font-extrabold text-slate-850 block mb-1">Paso 1: Crear Planilla Google Sheet</span>
-                      <p>Ve a tu Google Drive, crea una Hoja de Cálculo en blanco y cámbiale el nombre de la primera pestaña (abajo a la izquierda) por: <code className="bg-slate-200 text-slate-800 px-1 py-0.5 rounded font-mono font-bold">Revisiones</code>.</p>
-                    </div>
-
-                    <div>
-                      <span className="font-extrabold text-slate-850 block mb-1">Paso 2: Abrir el Editor de Código</span>
-                      <p>En el menú superior de tu Planilla de Google, haz click en <strong>Extensiones</strong> &gt; <strong>Apps Script</strong>.</p>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-extrabold text-slate-850">Paso 3: Pegar nuestro Código Maestro</span>
-                        <button
-                          type="button"
-                          onClick={handleCopyCode}
-                          className="px-2 py-1 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors cursor-pointer"
-                        >
-                          {copiedCode ? '✅ ¡Copiado!' : '📋 Copiar Código'}
-                        </button>
-                      </div>
-                      <p className="mb-2">Haz click en copiar código maestro, borra todo el contenido en el editor de Apps Script, pega esto y guárdalo (archivo <code className="font-mono">Código.gs</code>):</p>
-                      
-                      <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg text-[9px] font-mono h-24 overflow-y-auto w-full select-all border border-slate-800">
-                        {masterAppsScriptCode}
-                      </pre>
-                    </div>
-
-                    <div>
-                      <span className="font-extrabold text-slate-850 block mb-1">Paso 4: Publicar e Implementar</span>
-                      <p>Haz click arriba a la derecha en <strong>Implementar (Deploy)</strong> &gt; <strong>Nueva implementación</strong>. Selecciona tipo <strong>"Aplicación Web"</strong> (en el engranaje de configuración si no sale).</p>
-                      <p className="mt-1">Configura estrictamente lo siguiente:</p>
-                      <ul className="list-disc pl-5 mt-1 space-y-1">
-                        <li><strong>Ejecutar como:</strong> Yo (tuemail@gmail.com)</li>
-                        <li><strong>Quién tiene acceso:</strong> Cualquier persona (Anyone)</li>
-                      </ul>
-                      <p className="mt-2 text-rose-600 font-bold">¡Ojo! En la primera publicación de Apps Script, Google te pedirá "Autorizar de accesos". Dale en "Configuraciones Avanzadas" e ir a "Proyecto sin título" (Seguro) para finalizar.</p>
-                      <p className="mt-2 text-slate-800 font-semibold">Copia la "URL de la aplicación web" (debe terminar en <code className="font-mono text-emerald-700">/exec</code>) y pégala arriba.</p>
-                    </div>
+              {showInstruction && (
+                <div className="p-4 space-y-4 max-h-[355px] overflow-y-auto text-xs text-slate-600 leading-relaxed border-t border-slate-200">
+                  <div>
+                    <span className="font-extrabold text-slate-850 block mb-1">Paso 1: Crear Planilla Google Sheet</span>
+                    <p>Ve a tu Google Drive, crea una Hoja de Cálculo en blanco y cámbiale el nombre de la primera pestaña (abajo a la izquierda) por: <code className="bg-slate-200 text-slate-800 px-1 py-0.5 rounded font-mono font-bold">Revisiones</code>.</p>
                   </div>
-                )}
-              </div>
-            </div>
-          )}
 
-          <div className="mt-8 border-t border-slate-100 pt-5 text-[10px] text-slate-400 leading-relaxed font-semibold flex items-start gap-2">
+                  <div>
+                    <span className="font-extrabold text-slate-850 block mb-1">Paso 2: Abrir el Editor de Código</span>
+                    <p>En el menú superior de tu Planilla de Google, haz click en <strong>Extensiones</strong> &gt; <strong>Apps Script</strong>.</p>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-extrabold text-slate-850">Paso 3: Pegar nuestro Código Maestro</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyCode}
+                        className="px-2 py-1 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors cursor-pointer"
+                      >
+                        {copiedCode ? '✅ ¡Copiado!' : '📋 Copiar Código'}
+                      </button>
+                    </div>
+                    <p className="mb-2">Haz click en el botón de arriba para copiar el código maestro de Apps Script. Luego, borra todo el contenido en el editor de Apps Script, pega esto y guárdalo (archivo <code className="font-mono">Código.gs</code>):</p>
+                    
+                    <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg text-[9px] font-mono h-24 overflow-y-auto w-full select-all border border-slate-800">
+                      {masterAppsScriptCode}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <span className="font-extrabold text-slate-850 block mb-1">Paso 4: Publicar e Implementar</span>
+                    <p>Haz click arriba a la derecha en <strong>Implementar (Deploy)</strong> &gt; <strong>Nueva implementación</strong>. Selecciona tipo <strong>"Aplicación Web"</strong> (en el engranaje de configuración si no sale).</p>
+                    <p className="mt-1">Configura estrictamente lo siguiente:</p>
+                    <ul className="list-disc pl-5 mt-1 space-y-1">
+                      <li><strong>Ejecutar como:</strong> Yo (tuemail@gmail.com)</li>
+                      <li><strong>Quién tiene acceso:</strong> Cualquier persona (Anyone)</li>
+                    </ul>
+                    <p className="mt-2 text-rose-600 font-bold">¡Ojo! En la primera publicación de Apps Script, Google te pedirá "Autorizar acceso". Dale en "Configuraciones Avanzadas" e ir a "Proyecto sin título" (Seguro) para finalizar.</p>
+                    <p className="mt-2 text-slate-800 font-semibold">Copia la "URL de la aplicación web" (debe terminar en <code className="font-mono text-emerald-700">/exec</code>) y pégala arriba.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-8 border-t border-slate-100 pt-5 text-[10px] text-slate-400 leading-relaxed font-semibold flex items-start gap-2 animate-pulse">
             <Info className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
             <span>Datos descentralizados: AutoDiag procesa peticiones en tiempo real de forma segura y directa, asegurando privacidad total.</span>
           </div>
