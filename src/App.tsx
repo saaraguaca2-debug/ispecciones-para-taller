@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { initAuth, googleSignIn, logout } from './firebase';
-import { fetchRevisions, saveRevision, deleteRevision } from './sheetsService';
+import { fetchRevisions, saveRevision, deleteRevision, fetchRevisionsAppsScript, saveRevisionAppsScript, deleteRevisionAppsScript } from './sheetsService';
 import { Revision, SpreadsheetConfig, AppSettings } from './types';
 
 // Components imports
@@ -23,6 +23,15 @@ export default function App() {
   const [needsAuth, setNeedsAuth] = useState<boolean>(true);
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
   const [errorAuth, setErrorAuth] = useState<string | null>(null);
+
+  // Dual Connection / Apps Script direct connection state
+  const [appsScriptUrl, setAppsScriptUrl] = useState<string | null>(() => {
+    return localStorage.getItem('autodiag_appsscript_url');
+  });
+  const [loginTab, setLoginTab] = useState<'google' | 'appsscript'>('google');
+  const [inputAppsScriptUrl, setInputAppsScriptUrl] = useState<string>('');
+  const [showInstruction, setShowInstruction] = useState<boolean>(false);
+  const [copiedCode, setCopiedCode] = useState<boolean>(false);
 
   // Google Sheet Configuration states
   const [sheetConfig, setSheetConfig] = useState<SpreadsheetConfig | null>(null);
@@ -76,6 +85,21 @@ export default function App() {
   // 1. Check Session & Auth at load
   useEffect(() => {
     setLoadingAuth(true);
+    
+    // Quick check if configured via direct Apps Script Macro
+    const storedUrl = localStorage.getItem('autodiag_appsscript_url');
+    if (storedUrl) {
+      setAppsScriptUrl(storedUrl);
+      setSheetConfig({
+        id: 'apps_script',
+        title: 'Macro Apps Script',
+        url: storedUrl
+      });
+      setNeedsAuth(false);
+      setLoadingAuth(false);
+      return;
+    }
+
     const unsubscribe = initAuth(
       (currentUser, currentToken) => {
         setUser(currentUser);
@@ -96,6 +120,9 @@ export default function App() {
 
   // 2. Manage Sheet cache configuration and fetch DB entries
   useEffect(() => {
+    // Skip if configured with Apps Script
+    if (localStorage.getItem('autodiag_appsscript_url')) return;
+
     // Try to retrieve existing worksheet from localCache
     const cached = localStorage.getItem('autodiag_sheet_config');
     if (cached) {
@@ -112,22 +139,29 @@ export default function App() {
 
   // 3. Load database contents upon getting active token AND spreadsheet Configuration
   useEffect(() => {
-    if (token && sheetConfig?.id) {
+    if (appsScriptUrl) {
+      loadSpreadsheetData('apps_script', '');
+    } else if (token && sheetConfig?.id) {
       loadSpreadsheetData(sheetConfig.id, token);
     } else {
       setRevisions([]);
     }
-  }, [token, sheetConfig]);
+  }, [token, sheetConfig, appsScriptUrl]);
 
   const loadSpreadsheetData = async (spreadsheetId: string, currentToken: string) => {
     setLoadingRevisions(true);
     setErrorSheet(null);
     try {
-      const data = await fetchRevisions(spreadsheetId, currentToken);
+      let data;
+      if (appsScriptUrl) {
+        data = await fetchRevisionsAppsScript(appsScriptUrl);
+      } else {
+        data = await fetchRevisions(spreadsheetId, currentToken);
+      }
       setRevisions(data);
     } catch (err: any) {
       console.error(err);
-      setErrorSheet('No se pudo establecer conexión con Google Sheets. Compruebe los permisos o si el archivo fue borrado.');
+      setErrorSheet('No se pudo establecer conexión con Google Sheets. Compruebe los permisos o la dirección Apps Script.');
     } finally {
       setLoadingRevisions(false);
     }
@@ -156,10 +190,12 @@ export default function App() {
     await logout();
     setUser(null);
     setToken(null);
+    setAppsScriptUrl(null);
     setNeedsAuth(true);
     setSheetConfig(null);
     setRevisions([]);
     localStorage.removeItem('autodiag_sheet_config');
+    localStorage.removeItem('autodiag_appsscript_url');
   };
 
   // Bind a Google Sheet database connection state
@@ -169,6 +205,25 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
+  // Connect Google Apps Script directly
+  const handleConnectAppsScript = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanUrl = inputAppsScriptUrl.trim();
+    if (!cleanUrl || !cleanUrl.startsWith('https://script.google.com/')) {
+      setErrorAuth('Por favor ingresa una URL válida de aplicación web de Google Apps Script (Debe iniciar con https://script.google.com/)');
+      return;
+    }
+    setErrorAuth(null);
+    localStorage.setItem('autodiag_appsscript_url', cleanUrl);
+    setAppsScriptUrl(cleanUrl);
+    setSheetConfig({
+      id: 'apps_script',
+      title: 'Macro Apps Script',
+      url: cleanUrl
+    });
+    setNeedsAuth(false);
+  };
+
   // Disconnect a Sheet model
   const handleDisconnectSheet = () => {
     const confirm = window.confirm('¿Desea desvincular la base de datos de Google Sheets del taller? Los datos no se borrarán en Drive, pero ya no se mostrarán aquí.');
@@ -176,11 +231,33 @@ export default function App() {
 
     setSheetConfig(null);
     setRevisions([]);
+    setAppsScriptUrl(null);
     localStorage.removeItem('autodiag_sheet_config');
+    localStorage.removeItem('autodiag_appsscript_url');
   };
 
   // Append or Update DB entry on Google Spreadsheet
   const handleSaveRevision = async (updatedRevision: Revision) => {
+    if (appsScriptUrl) {
+      try {
+        setLoadingRevisions(true);
+        const success = await saveRevisionAppsScript(appsScriptUrl, updatedRevision);
+        if (success) {
+          await loadSpreadsheetData('apps_script', '');
+          setEditingRevision(null);
+          setActiveTab('revisions');
+        } else {
+          throw new Error('La Macro de Apps Script reportó un fallo al guardar.');
+        }
+      } catch (error) {
+        console.error(error);
+        alert('Ocurrió un error al guardar usando la Macro de Apps Script. Verifica que esté correctamente implementada (Deploy) y con acceso a "Cualquiera" (Anyone).');
+      } finally {
+        setLoadingRevisions(false);
+      }
+      return;
+    }
+
     if (!sheetConfig || !token) return;
 
     try {
@@ -201,6 +278,23 @@ export default function App() {
 
   // Erase DB entry row
   const handleDeleteRevision = async (revisionId: string) => {
+    if (appsScriptUrl) {
+      try {
+        setLoadingRevisions(true);
+        const success = await deleteRevisionAppsScript(appsScriptUrl, revisionId);
+        if (success) {
+          await loadSpreadsheetData('apps_script', '');
+        } else {
+          alert('La Macro de Apps Script reportó un fallo al eliminar.');
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setLoadingRevisions(false);
+      }
+      return;
+    }
+
     if (!sheetConfig || !token) return;
 
     try {
@@ -341,9 +435,149 @@ export default function App() {
 
   // Login Onboarding Form Canvas
   if (needsAuth) {
+    const masterAppsScriptCode = `function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Revisiones");
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+  }
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+  }
+  var headers = data[0];
+  var revisions = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[0]) continue;
+    
+    var checklist = [];
+    try {
+      if (row[11]) {
+        checklist = JSON.parse(row[11]);
+      }
+    } catch(err) {
+      checklist = [];
+    }
+    
+    revisions.push({
+      id: String(row[0]),
+      fecha: String(row[1] || ''),
+      clienteNombre: String(row[2] || ''),
+      clienteTelefono: String(row[3] || ''),
+      clienteEmail: String(row[4] || ''),
+      vehiculoPlaca: String(row[5] || ''),
+      vehiculoMarca: String(row[6] || ''),
+      vehiculoModelo: String(row[7] || ''),
+      vehiculoAnio: String(row[8] || ''),
+      vehiculoKilometraje: String(row[9] || ''),
+      motivo: String(row[10] || ''),
+      checklist: checklist,
+      diagnosticoGeneral: String(row[12] || ''),
+      presupuestoEstimado: Number(row[13]) || 0,
+      detallesPresupuesto: String(row[14] || ''),
+      tecnico: String(row[15] || ''),
+      estado: String(row[16] || 'pendiente'),
+      notasInternas: String(row[17] || '')
+    });
+  }
+  return ContentService.createTextOutput(JSON.stringify(revisions))
+    .setMimeType(ContentService.MimeType.JSON)
+    .setHeader("Access-Control-Allow-Origin", "*");
+}
+
+function doPost(e) {
+  var responseRaw = { success: false, error: "Invalid action" };
+  try {
+    var postData = JSON.parse(e.postData.contents);
+    var action = postData.action;
+    var revision = postData.revision;
+    var revisionId = postData.revisionId;
+    
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("Revisiones");
+    if (!sheet) {
+      sheet = ss.insertSheet("Revisiones");
+      var headers = [
+        "ID", "Fecha", "Nombre Cliente", "Teléfono", "Email", 
+        "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
+        "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
+        "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
+        "Estado", "Notas Internas"
+      ];
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+    
+    var dataRange = sheet.getDataRange();
+    var values = dataRange.getValues();
+    
+    if (action === "save") {
+      var rowData = [
+        revision.id,
+        revision.fecha,
+        revision.clienteNombre,
+        revision.clienteTelefono,
+        revision.clienteEmail,
+        revision.vehiculoPlaca,
+        revision.vehiculoMarca,
+        revision.vehiculoModelo,
+        revision.vehiculoAnio,
+        revision.vehiculoKilometraje,
+        revision.motivo,
+        JSON.stringify(revision.checklist),
+        revision.diagnosticoGeneral,
+        revision.presupuestoEstimado,
+        revision.detallesPresupuesto,
+        revision.tecnico,
+        revision.estado,
+        revision.notasInternas
+      ];
+      
+      var existingIndex = -1;
+      for (var i = 1; i < values.length; i++) {
+        if (values[i][0] === revision.id) {
+          existingIndex = i;
+          break;
+        }
+      }
+      
+      if (existingIndex !== -1) {
+        sheet.getRange(existingIndex + 1, 1, 1, rowData.length).setValues([rowData]);
+      } else {
+        sheet.appendRow(rowData);
+      }
+      responseRaw = { success: true };
+    } else if (action === "delete") {
+      var existingIndex = -1;
+      for (var i = 1; i < values.length; i++) {
+        if (values[i][0] === revisionId) {
+          existingIndex = i;
+          break;
+        }
+      }
+      if (existingIndex !== -1) {
+        sheet.deleteRow(existingIndex + 1);
+        responseRaw = { success: true };
+      } else {
+        responseRaw = { success: false, error: "Revision not found" };
+      }
+    }
+  } catch (err) {
+    responseRaw = { success: false, error: err.toString() };
+  }
+  return ContentService.createTextOutput(JSON.stringify(responseRaw))
+    .setMimeType(ContentService.MimeType.JSON)
+    .setHeader("Access-Control-Allow-Origin", "*");
+}`;
+
+    const handleCopyCode = () => {
+      navigator.clipboard.writeText(masterAppsScriptCode);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 3000);
+    };
+
     return (
-      <div id="login-onboarding" className="min-h-screen bg-slate-50/50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 text-center">
-        <div className="max-w-md w-full mx-auto bg-white border border-slate-200 rounded-3xl p-8 shadow-xl relative overflow-hidden text-left">
+      <div id="login-onboarding" className="min-h-screen bg-slate-50/50 flex flex-col justify-center py-6 px-4 sm:px-6 lg:px-8 text-center">
+        <div className="max-w-xl w-full mx-auto bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden text-left">
           
           <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-emerald-500 to-teal-600"></div>
 
@@ -351,43 +585,154 @@ export default function App() {
             <span className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shadow-inner">
               <Landmark className="h-6 w-6 text-emerald-600" />
             </span>
-            <span className="text-[10px] uppercase font-black text-slate-405 tracking-wider bg-slate-100 py-1 px-3 rounded-full">
-              SaaS Automotriz
+            <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider bg-slate-100 py-1 px-3 rounded-full">
+              SaaS Automotriz Directo
             </span>
           </div>
 
           <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-2">
-            Registro de Diagnósticos Automotrices
+            Control de Diagnósticos Automotrices
           </h2>
-          <p className="text-slate-500 text-sm leading-relaxed mb-6">
-            Inicie sesión de manera segura con Google. El sistema utilizará Google Sheets de su propia cuenta de Drive para almacenar los datos del cliente, checklists mecánicos y presupuestos de captación.
+          <p className="text-slate-500 text-xs leading-relaxed mb-6">
+            Configura cómo guardar los registros del taller en Google Sheets de forma segura.
           </p>
 
+          {/* Tab Selection */}
+          <div className="flex border-b border-slate-100 mb-6 font-semibold text-xs">
+            <button
+              onClick={() => setLoginTab('google')}
+              className={`flex-1 pb-3 text-center border-b-2 transition-all ${
+                loginTab === 'google'
+                  ? 'border-emerald-600 text-slate-900 font-extrabold'
+                  : 'border-transparent text-slate-400 font-medium hover:text-slate-600'
+              }`}
+            >
+              Opción 1: Iniciar con Google
+            </button>
+            <button
+              onClick={() => setLoginTab('appsscript')}
+              className={`flex-1 pb-3 text-center border-b-2 transition-all ${
+                loginTab === 'appsscript'
+                  ? 'border-emerald-600 text-slate-900 font-extrabold'
+                  : 'border-transparent text-slate-400 font-medium hover:text-slate-600'
+              }`}
+            >
+              Opción 2: Apps Script (Fácil para Vercel)
+            </button>
+          </div>
+
           {errorAuth && (
-            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-800 text-xs flex gap-2">
+            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-850 text-xs flex gap-2">
               <AlertTriangle className="h-4.5 w-4.5 text-rose-500 shrink-0 mt-0.5" />
               <span>{errorAuth}</span>
             </div>
           )}
 
-          {/* Sign in with Google branded custom button */}
-          <button
-            onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-950 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
-          >
-            <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5 bg-white p-0.5 rounded-full shrink-0">
-              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-              <path fill="none" d="M0 0h48v48H0z"></path>
-            </svg>
-            <span className="text-sm">Iniciar Sesión con Google</span>
-          </button>
+          {loginTab === 'google' ? (
+            <div className="space-y-5 animate-fade-in">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Inicia sesión de manera segura a través de Google OAuth. El sistema utilizará Firebase para autenticación local y sincronizará directamente con la API de Google Sheets seleccionada en tu unidad de Drive.
+              </p>
+              
+              {/* Sign in with Google branded custom button */}
+              <button
+                onClick={handleLogin}
+                className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-950 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5 bg-white p-0.5 rounded-full shrink-0">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                  <path fill="none" d="M0 0h48v48H0z"></path>
+                </svg>
+                <span className="text-sm">Iniciar Sesión con Google</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-5 animate-fade-in">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                <strong>¿No quieres configurar Firebase ni pantallas de Google Cloud?</strong> Conéctalo directamente usando una Macro de Google Apps Script. El navegador se comunicará directo con tu planilla sin necesidad de iniciar sesión.
+              </p>
+
+              <form onSubmit={handleConnectAppsScript} className="space-y-3">
+                <input
+                  type="text"
+                  placeholder="Pegue la URL ejecutora de Apps Script (https://script.google.com/.../exec)"
+                  value={inputAppsScriptUrl}
+                  onChange={(e) => setInputAppsScriptUrl(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800"
+                />
+                
+                <button
+                  type="submit"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                >
+                  Vincular Mediante Apps Script
+                </button>
+              </form>
+
+              {/* Collapsible Steps */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden mt-2 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setShowInstruction(!showInstruction)}
+                  className="w-full text-left font-bold text-slate-800 text-xs px-4 py-3 bg-slate-100 hover:bg-slate-200/60 flex justify-between items-center transition-colors"
+                >
+                  <span>📋 Ver Instrucciones de Configuración (3 minutos)</span>
+                  <span className="text-[10px] text-emerald-600">{showInstruction ? '▲ Ocultar' : '▼ Mostrar'}</span>
+                </button>
+
+                {showInstruction && (
+                  <div className="p-4 space-y-4 max-h-[350px] overflow-y-auto text-xs text-slate-600 leading-relaxed border-t border-slate-200">
+                    <div>
+                      <span className="font-extrabold text-slate-850 block mb-1">Paso 1: Crear Planilla Google Sheet</span>
+                      <p>Ve a tu Google Drive, crea una Hoja de Cálculo en blanco y cámbiale el nombre de la primera pestaña (abajo a la izquierda) por: <code className="bg-slate-200 text-slate-800 px-1 py-0.5 rounded font-mono font-bold">Revisiones</code>.</p>
+                    </div>
+
+                    <div>
+                      <span className="font-extrabold text-slate-850 block mb-1">Paso 2: Abrir el Editor de Código</span>
+                      <p>En el menú superior de tu Planilla de Google, haz click en <strong>Extensiones</strong> &gt; <strong>Apps Script</strong>.</p>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-extrabold text-slate-850">Paso 3: Pegar nuestro Código Maestro</span>
+                        <button
+                          type="button"
+                          onClick={handleCopyCode}
+                          className="px-2 py-1 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors cursor-pointer"
+                        >
+                          {copiedCode ? '✅ ¡Copiado!' : '📋 Copiar Código'}
+                        </button>
+                      </div>
+                      <p className="mb-2">Haz click en copiar código maestro, borra todo el contenido en el editor de Apps Script, pega esto y guárdalo (archivo <code className="font-mono">Código.gs</code>):</p>
+                      
+                      <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg text-[9px] font-mono h-24 overflow-y-auto w-full select-all border border-slate-800">
+                        {masterAppsScriptCode}
+                      </pre>
+                    </div>
+
+                    <div>
+                      <span className="font-extrabold text-slate-850 block mb-1">Paso 4: Publicar e Implementar</span>
+                      <p>Haz click arriba a la derecha en <strong>Implementar (Deploy)</strong> &gt; <strong>Nueva implementación</strong>. Selecciona tipo <strong>"Aplicación Web"</strong> (en el engranaje de configuración si no sale).</p>
+                      <p className="mt-1">Configura estrictamente lo siguiente:</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li><strong>Ejecutar como:</strong> Yo (tuemail@gmail.com)</li>
+                        <li><strong>Quién tiene acceso:</strong> Cualquier persona (Anyone)</li>
+                      </ul>
+                      <p className="mt-2 text-rose-600 font-bold">¡Ojo! En la primera publicación de Apps Script, Google te pedirá "Autorizar de accesos". Dale en "Configuraciones Avanzadas" e ir a "Proyecto sin título" (Seguro) para finalizar.</p>
+                      <p className="mt-2 text-slate-800 font-semibold">Copia la "URL de la aplicación web" (debe terminar en <code className="font-mono text-emerald-700">/exec</code>) y pégala arriba.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="mt-8 border-t border-slate-100 pt-5 text-[10px] text-slate-400 leading-relaxed font-semibold flex items-start gap-2">
             <Info className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-            <span>Garantizamos control de datos local: AutoDiag procesa peticiones en tiempo real de forma segura y privada conectando directamente con las APIs oficiales de Google Sheets.</span>
+            <span>Datos descentralizados: AutoDiag procesa peticiones en tiempo real de forma segura y directa, asegurando privacidad total.</span>
           </div>
 
         </div>

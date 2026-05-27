@@ -227,6 +227,71 @@ export async function fetchRevisions(spreadsheetId: string, token: string): Prom
   }
 }
 
+// ==========================================
+// GOOGLE APPS SCRIPT WEB APP ALTERNATIVE MODE
+// ==========================================
+
+export async function fetchRevisionsAppsScript(appsScriptUrl: string): Promise<Revision[]> {
+  try {
+    // Apps Script GET returns JSON revisions
+    const response = await fetch(appsScriptUrl, {
+      method: 'GET',
+      redirect: 'follow'
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Error fetching revisions via Apps Script:', error);
+    throw error;
+  }
+}
+
+export async function saveRevisionAppsScript(appsScriptUrl: string, revision: Revision): Promise<boolean> {
+  try {
+    const response = await fetch(appsScriptUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      // We don't specify application/json to bypass CORS preflight checks in Apps Script Web App
+      body: JSON.stringify({
+        action: 'save',
+        revision
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.success === true;
+  } catch (error) {
+    console.error('Error saving revision via Apps Script:', error);
+    throw error;
+  }
+}
+
+export async function deleteRevisionAppsScript(appsScriptUrl: string, revisionId: string): Promise<boolean> {
+  try {
+    const response = await fetch(appsScriptUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      body: JSON.stringify({
+        action: 'delete',
+        revisionId
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.success === true;
+  } catch (error) {
+    console.error('Error deleting revision via Apps Script:', error);
+    return false;
+  }
+}
+
 // Create 'Revisiones' tab if not exists in target sheet
 async function createRevisionesTab(spreadsheetId: string, token: string): Promise<boolean> {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
