@@ -28,6 +28,9 @@ export default function App() {
   const [appsScriptUrl, setAppsScriptUrl] = useState<string | null>(() => {
     return localStorage.getItem('autodiag_appsscript_url');
   });
+  const [useLocalFallback, setUseLocalFallback] = useState<boolean>(() => {
+    return localStorage.getItem('autodiag_use_local_fallback') === 'true';
+  });
   const [loginTab, setLoginTab] = useState<'google' | 'appsscript'>('google');
   const [inputAppsScriptUrl, setInputAppsScriptUrl] = useState<string>('');
   const [showInstruction, setShowInstruction] = useState<boolean>(false);
@@ -82,6 +85,46 @@ export default function App() {
     localStorage.setItem('autodiag_workspace_settings', JSON.stringify(newSettings));
   };
 
+  // Helper function to load local revisions
+  const loadLocalRevisions = (): Revision[] => {
+    const cached = localStorage.getItem('autodiag_revisions_fallback');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        return [];
+      }
+    }
+    return [
+      {
+        id: 'rev-demo-1',
+        fecha: new Date().toISOString().split('T')[0],
+        clienteNombre: 'Carlos Mendoza',
+        clienteTelefono: '+34 612 345 678',
+        clienteEmail: 'carlos.mendoza@email.com',
+        vehiculoPlaca: 'MAD-4589-X',
+        vehiculoMarca: 'Toyota',
+        vehiculoModelo: 'Yaris Hybrid',
+        vehiculoAnio: '2021',
+        vehiculoKilometraje: '45000',
+        motivo: 'Revisión periódica y ruido al frenar en frío.',
+        checklist: [
+          { id: '1', name: 'Frenos delanteros', status: 'regular', notes: 'Pastillas a un 25% de vida' },
+          { id: '2', name: 'Frenos traseros', status: 'ok', notes: 'Correcto' },
+          { id: '3', name: 'Aceite de Motor', status: 'ok', notes: 'Nivel óptimo' },
+          { id: '4', name: 'Líquido Refrigerante', status: 'ok', notes: 'Correcto' },
+          { id: '5', name: 'Líquido de Frenos', status: 'regular', notes: 'Presencia de humedad baja' },
+          { id: '6', name: 'Presión de Aire', status: 'ok', notes: 'Alineado correcto' }
+        ],
+        diagnosticoGeneral: 'Se requiere cambio de pastillas de freno delanteras a corto plazo. Resto del coche se encuentra en perfecto estado de funcionamiento.',
+        presupuestoEstimado: 120,
+        detallesPresupuesto: 'Pastillas de freno delanteras Brembo (80€) + Mano de obra 0.8h (40€)',
+        tecnico: 'Juan Pérez',
+        estado: 'pendiente',
+        notasInternas: 'Presupuesto ya comentado al cliente por llamada, queda a la espera de confirmación.'
+      }
+    ];
+  };
 
   // 1. Check Session & Auth at load
   useEffect(() => {
@@ -89,6 +132,20 @@ export default function App() {
     
     // Quick check if configured via direct Apps Script Macro
     const storedUrl = localStorage.getItem('autodiag_appsscript_url');
+    const storedLocalFallback = localStorage.getItem('autodiag_use_local_fallback') === 'true';
+
+    if (storedLocalFallback) {
+      setUseLocalFallback(true);
+      setSheetConfig({
+        id: 'local_database',
+        title: 'Base de Datos Local (Navegador)',
+        url: 'local'
+      });
+      setNeedsAuth(false);
+      setLoadingAuth(false);
+      return;
+    }
+
     if (storedUrl) {
       setAppsScriptUrl(storedUrl);
       setSheetConfig({
@@ -121,8 +178,8 @@ export default function App() {
 
   // 2. Manage Sheet cache configuration and fetch DB entries
   useEffect(() => {
-    // Skip if configured with Apps Script
-    if (localStorage.getItem('autodiag_appsscript_url')) return;
+    // Skip if configured with Apps Script or Local fallback
+    if (localStorage.getItem('autodiag_appsscript_url') || localStorage.getItem('autodiag_use_local_fallback') === 'true') return;
 
     // Try to retrieve existing worksheet from localCache
     const cached = localStorage.getItem('autodiag_sheet_config');
@@ -140,19 +197,28 @@ export default function App() {
 
   // 3. Load database contents upon getting active token AND spreadsheet Configuration
   useEffect(() => {
-    if (appsScriptUrl) {
+    if (useLocalFallback) {
+      loadSpreadsheetData('local_database', '');
+    } else if (appsScriptUrl) {
       loadSpreadsheetData('apps_script', '');
     } else if (token && sheetConfig?.id) {
       loadSpreadsheetData(sheetConfig.id, token);
     } else {
       setRevisions([]);
     }
-  }, [token, sheetConfig, appsScriptUrl]);
+  }, [token, sheetConfig, appsScriptUrl, useLocalFallback]);
 
   const loadSpreadsheetData = async (spreadsheetId: string, currentToken: string) => {
     setLoadingRevisions(true);
     setErrorSheet(null);
     try {
+      if (useLocalFallback) {
+        const localData = loadLocalRevisions();
+        setRevisions(localData);
+        setLoadingRevisions(false);
+        return;
+      }
+
       let data;
       if (appsScriptUrl) {
         data = await fetchRevisionsAppsScript(appsScriptUrl);
@@ -195,8 +261,10 @@ export default function App() {
     setNeedsAuth(true);
     setSheetConfig(null);
     setRevisions([]);
+    setUseLocalFallback(false);
     localStorage.removeItem('autodiag_sheet_config');
     localStorage.removeItem('autodiag_appsscript_url');
+    localStorage.removeItem('autodiag_use_local_fallback');
   };
 
   // Bind a Google Sheet database connection state
@@ -217,6 +285,8 @@ export default function App() {
     setErrorAuth(null);
     localStorage.setItem('autodiag_appsscript_url', cleanUrl);
     setAppsScriptUrl(cleanUrl);
+    setUseLocalFallback(false);
+    localStorage.removeItem('autodiag_use_local_fallback');
     setSheetConfig({
       id: 'apps_script',
       title: 'Macro Apps Script',
@@ -233,12 +303,32 @@ export default function App() {
     setSheetConfig(null);
     setRevisions([]);
     setAppsScriptUrl(null);
+    setUseLocalFallback(false);
     localStorage.removeItem('autodiag_sheet_config');
     localStorage.removeItem('autodiag_appsscript_url');
+    localStorage.removeItem('autodiag_use_local_fallback');
+    setNeedsAuth(true);
+    setOnboardingView('welcome');
   };
 
   // Append or Update DB entry on Google Spreadsheet
   const handleSaveRevision = async (updatedRevision: Revision) => {
+    if (useLocalFallback) {
+      const current = loadLocalRevisions();
+      const existsIndex = current.findIndex(r => r.id === updatedRevision.id);
+      let updatedList = [...current];
+      if (existsIndex !== -1) {
+        updatedList[existsIndex] = updatedRevision;
+      } else {
+        updatedList.push(updatedRevision);
+      }
+      localStorage.setItem('autodiag_revisions_fallback', JSON.stringify(updatedList));
+      setRevisions(updatedList);
+      setEditingRevision(null);
+      setActiveTab('revisions');
+      return;
+    }
+
     if (appsScriptUrl) {
       try {
         setLoadingRevisions(true);
@@ -281,6 +371,14 @@ export default function App() {
 
   // Erase DB entry row
   const handleDeleteRevision = async (revisionId: string) => {
+    if (useLocalFallback) {
+      const current = loadLocalRevisions();
+      const updatedList = current.filter(r => r.id !== revisionId);
+      localStorage.setItem('autodiag_revisions_fallback', JSON.stringify(updatedList));
+      setRevisions(updatedList);
+      return;
+    }
+
     if (appsScriptUrl) {
       try {
         setLoadingRevisions(true);
@@ -336,25 +434,90 @@ export default function App() {
 
     if (errorSheet) {
       return (
-        <div className="max-w-2xl mx-auto py-12 p-6 bg-rose-50 border border-rose-105 rounded-2xl text-rose-800 text-left">
-          <AlertTriangle className="h-8 w-8 text-rose-500 mb-3" />
-          <h4 className="text-lg font-extrabold mb-1">Error de Sincronización</h4>
-          <p className="text-sm text-rose-700 leading-relaxed mb-4">{errorSheet}</p>
-          <div className="flex gap-3">
+        <div className="max-w-3xl mx-auto py-8 p-6 sm:p-8 bg-slate-900 border border-slate-800 rounded-3xl text-slate-100 text-left shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500"></div>
+
+          <div className="flex items-start gap-4 mb-6">
+            <span className="p-3.5 bg-rose-950/50 border border-rose-900 text-rose-450 rounded-2xl shrink-0">
+              <AlertTriangle className="h-7 w-7 animate-pulse text-rose-500" />
+            </span>
+            <div>
+              <span className="text-[10px] uppercase font-black text-rose-400 tracking-wider bg-rose-950/60 px-2.5 py-1 rounded-full border border-rose-900/40">
+                Fallo de Conexión o CORS
+              </span>
+              <h4 className="text-xl font-black text-white tracking-tight mt-1">Conexión con Google Sheets fallida</h4>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed mb-6 font-medium">
+            El navegador recibió un bloqueo al comunicarse con Google Apps Script. Esto suele pasar cuando no se completó la autorización de los permisos de Google, o la Macro no está configurada para el acceso de "Cualquiera".
+          </p>
+
+          <div className="bg-slate-950/80 border border-slate-850 p-4 rounded-xl space-y-3.5 mb-6 text-xs text-slate-350 leading-relaxed font-medium">
+            <h5 className="text-[10px] uppercase font-black text-slate-300 tracking-wider flex items-center gap-1.5 border-b border-slate-850 pb-2">
+              <Info className="h-4 w-4 text-emerald-500 shrink-0" />
+              <span>GUÍA RÁPIDA DE RESOLUCIÓN DE PERMISOS Google:</span>
+            </h5>
+            <ul className="space-y-3">
+              <li className="flex gap-2.5">
+                <span className="text-emerald-500 font-extrabold shrink-0">1.</span>
+                <span><strong>¿Aprobaste la Autorización?:</strong> Al publicar en Apps Script, Google abre una ventana flotante. Tienes que pulsar en <strong>"Autorizar acceso"</strong>, entrar con tu cuenta, pulsar en <strong>Configuraciones Avanzadas</strong> (abajo en pequeñito) y en <strong>proceder a "Proyecto sin título (no seguro)"</strong>. Sin este paso, Google bloqueará el acceso.</span>
+              </li>
+              <li className="flex gap-2.5">
+                <span className="text-emerald-500 font-extrabold shrink-0">2.</span>
+                <span><strong>¿Acceso público o privado?:</strong> En Apps Script, dale a <strong>Implementar (Deploy)</strong> &gt; <strong>Administrar implementaciones</strong> o Nueva implementación. La opción <strong>"Quién tiene acceso" (Who has access)</strong> debe estar obligatoriamente configurada en <strong>"Cualquiera" (Anyone)</strong>. Si pones "Solo Yo", la web no podrá guardar nada.</span>
+              </li>
+              <li className="flex gap-2.5">
+                <span className="text-emerald-500 font-extrabold shrink-0">3.</span>
+                <span><strong>¿Copiasta la URL correcta ?:</strong> Debe ser la <strong>URL de aplicación web</strong> que termina en <code className="bg-slate-900 text-emerald-400 font-mono px-1 py-0.5 rounded text-[10px] select-all">/exec</code>. No sirve pegar la URL del editor ni la de la planilla Google Sheet.</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-800">
             <button
-              onClick={() => sheetConfig && token && loadSpreadsheetData(sheetConfig.id, token)}
-              className="px-4 py-2 bg-rose-600 text-slate-50 text-xs font-bold rounded-lg hover:bg-rose-700 cursor-pointer"
+              onClick={() => {
+                setErrorSheet(null);
+                loadSpreadsheetData(sheetConfig?.id || 'apps_script', token || '');
+              }}
+              className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl cursor-pointer flex justify-center items-center gap-2 transition-all hover:scale-[1.01]"
             >
-              Reintentar Conexión
+              <Activity className="h-4 w-4 animate-pulse" />
+              <span>Reintentar Conexión</span>
+            </button>
+            <button
+              onClick={() => {
+                setUseLocalFallback(true);
+                localStorage.setItem('autodiag_use_local_fallback', 'true');
+                setErrorSheet(null);
+                setSheetConfig({
+                  id: 'local_database',
+                  title: 'Base de Datos Local (Navegador)',
+                  url: 'local'
+                });
+                const localData = loadLocalRevisions();
+                setRevisions(localData);
+              }}
+              className="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-black text-xs rounded-xl cursor-pointer flex justify-center items-center gap-2 transition-all"
+            >
+              <Sparkles className="h-4 w-4 text-amber-400" />
+              <span>Trabajar en Modo Local Temporal</span>
             </button>
             <button
               onClick={() => {
                 setSheetConfig(null);
+                setAppsScriptUrl(null);
                 localStorage.removeItem('autodiag_sheet_config');
+                localStorage.removeItem('autodiag_appsscript_url');
+                localStorage.removeItem('autodiag_use_local_fallback');
+                setUseLocalFallback(false);
+                setErrorSheet(null);
+                setOnboardingView('setup');
+                setNeedsAuth(true);
               }}
-              className="px-4 py-2 border border-rose-300 text-rose-900 text-xs font-bold rounded-lg hover:bg-rose-100 cursor-pointer"
+              className="px-4 py-3 border border-slate-750 hover:bg-slate-900 text-slate-400 hover:text-white font-bold text-xs rounded-xl cursor-pointer transition-all"
             >
-              Vincular otra Planilla
+              Modificar URL
             </button>
           </div>
         </div>
@@ -441,18 +604,40 @@ export default function App() {
   // Login Onboarding Form Canvas
   if (needsAuth) {
     const masterAppsScriptCode = `function doGet(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Revisiones");
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Revisiones");
+  
+  // Si la pestaña no existe, la creamos e inicializamos
   if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+    sheet = ss.insertSheet("Revisiones");
   }
-  var data = sheet.getDataRange().getValues();
-  if (data.length <= 1) {
-    return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+  
+  var headers = [
+    "ID", "Fecha", "Nombre Cliente", "Teléfono", "Email", 
+    "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
+    "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
+    "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
+    "Estado", "Notas Internas"
+  ];
+  
+  var dataRange = sheet.getDataRange();
+  var values = dataRange.getValues();
+  
+  // Si está vacía o el primer valor no es "ID", escribimos los encabezados obligatorios
+  if (values.length === 0 || values[0].length === 0 || !values[0][0] || values[0][0] !== "ID") {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    values = sheet.getDataRange().getValues(); // Recargar datos actualizados
   }
-  var headers = data[0];
+  
+  if (values.length <= 1) {
+    return ContentService.createTextOutput(JSON.stringify([]))
+      .setMimeType(ContentService.MimeType.JSON)
+      .setHeader("Access-Control-Allow-Origin", "*");
+  }
+  
   var revisions = [];
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
     if (!row[0]) continue;
     
     var checklist = [];
@@ -502,18 +687,24 @@ function doPost(e) {
     var sheet = ss.getSheetByName("Revisiones");
     if (!sheet) {
       sheet = ss.insertSheet("Revisiones");
-      var headers = [
-        "ID", "Fecha", "Nombre Cliente", "Teléfono", "Email", 
-        "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
-        "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
-        "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
-        "Estado", "Notas Internas"
-      ];
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
+    
+    var headers = [
+      "ID", "Fecha", "Nombre Cliente", "Teléfono", "Email", 
+      "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
+      "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
+      "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
+      "Estado", "Notas Internas"
+    ];
     
     var dataRange = sheet.getDataRange();
     var values = dataRange.getValues();
+    
+    // Validar y escribir los encabezados faltantes
+    if (values.length === 0 || values[0].length === 0 || !values[0][0] || values[0][0] !== "ID") {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      values = sheet.getDataRange().getValues(); // Recargar datos actualizados
+    }
     
     if (action === "save") {
       var rowData = [
@@ -770,6 +961,29 @@ function doPost(e) {
               </button>
             </form>
 
+            <div className="pt-2 text-center border-t border-slate-100 flex flex-col gap-2">
+              <span className="text-slate-400 text-[9px] uppercase tracking-wider font-extrabold">O si prefieres probar la app sin sincronizar hoy:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseLocalFallback(true);
+                  localStorage.setItem('autodiag_use_local_fallback', 'true');
+                  setNeedsAuth(false);
+                  setSheetConfig({
+                    id: 'local_database',
+                    title: 'Base de Datos Local (Navegador)',
+                    url: 'local'
+                  });
+                  const localData = loadLocalRevisions();
+                  setRevisions(localData);
+                }}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold py-2.5 px-4 rounded-xl text-xs transition-colors border border-slate-200 cursor-pointer flex justify-center items-center gap-1.5 animate-pulse"
+              >
+                <Sparkles className="h-4 w-4 text-amber-500" />
+                <span>Ingresar en Modo Prueba Local</span>
+              </button>
+            </div>
+
             {/* Collapsible Steps */}
             <div className="border border-slate-200 rounded-xl overflow-hidden mt-2 bg-slate-50">
               <button
@@ -859,6 +1073,35 @@ function doPost(e) {
 
       {/* Main Module Layout Container - padded bottom on mobile for thumb navigation bar safety */}
       <main className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 ${sheetConfig ? 'pb-24 md:pb-8' : 'py-8'}`}>
+        {useLocalFallback && sheetConfig && (
+          <div className="mb-6 p-4 bg-amber-55/80 border border-amber-200/60 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3 shadow-inner-lg text-amber-900 animate-pulse bg-gradient-to-r from-amber-50 to-orange-50/20">
+            <div className="flex items-center gap-2.5 text-xs font-semibold text-left">
+              <span className="p-1.5 bg-amber-100 rounded-lg text-amber-700">
+                <Sparkles className="h-4.5 w-4.5 text-amber-650" />
+              </span>
+              <div>
+                <p className="font-extrabold text-amber-950 text-sm">Modo de Diagnóstico Local Activo</p>
+                <p className="text-[11px] text-amber-700 font-medium mt-0.5">Los reportes se están grabando en este navegador. Para persistir online en tu Drive de forma definitiva:</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setUseLocalFallback(false);
+                localStorage.removeItem('autodiag_use_local_fallback');
+                setAppsScriptUrl(null);
+                localStorage.removeItem('autodiag_appsscript_url');
+                setSheetConfig(null);
+                setErrorSheet(null);
+                setNeedsAuth(true);
+                setOnboardingView('setup');
+              }}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[10px] uppercase tracking-wide rounded-lg transition-all cursor-pointer shrink-0 shadow-sm"
+            >
+              Conectar Google Sheets
+            </button>
+          </div>
+        )}
+
         {sheetConfig ? (
           /* Render main app content when spreadsheet database is connected */
           renderContent()
