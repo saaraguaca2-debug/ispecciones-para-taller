@@ -531,6 +531,10 @@ export default function App() {
               setViewingRevision(null);
               setActiveTab('revisions');
             }}
+            onSave={async (updated) => {
+              await handleSaveRevision(updated);
+              setViewingRevision(updated); // Live updates so signature/status is immediately visible
+            }}
           />
         ) : (
           <div className="text-center py-20 text-slate-400">Seleccione un diagnóstico del panel primero para visualizar el reporte.</div>
@@ -584,7 +588,7 @@ function doGet(e) {
       "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
       "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
       "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
-      "Estado", "Notas Internas"
+      "Estado", "Notas Internas", "Firma Cliente"
     ];
     
     var dataRange = sheet.getDataRange();
@@ -633,7 +637,8 @@ function doGet(e) {
         detallesPresupuesto: String(row[14] || ''),
         tecnico: String(row[15] || ''),
         estado: String(row[16] || 'pendiente'),
-        notasInternas: String(row[17] || '')
+        notasInternas: String(row[17] || ''),
+        firmaCliente: String(row[18] || '')
       });
     }
     return ContentService.createTextOutput(JSON.stringify(revisions))
@@ -672,7 +677,7 @@ function doPost(e) {
       "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
       "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
       "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
-      "Estado", "Notas Internas"
+      "Estado", "Notas Internas", "Firma Cliente"
     ];
     
     var dataRange = sheet.getDataRange();
@@ -703,7 +708,8 @@ function doPost(e) {
         revision.detallesPresupuesto,
         revision.tecnico,
         revision.estado,
-        revision.notasInternas
+        revision.notasInternas,
+        revision.firmaCliente || ""
       ];
       
       var existingIndex = -1;

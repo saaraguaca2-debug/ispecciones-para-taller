@@ -1,17 +1,21 @@
 import { useState } from 'react';
-import { Revision, ChecklistItem, AppSettings } from '../types';
-import { Printer, MessageCircle, ArrowLeft, ShieldCheck, Mail, Phone, Calendar, User, Wrench, AlertTriangle, CheckCircle, Info, Send, Share2 } from 'lucide-react';
+import { Revision, ChecklistItem, AppSettings, RevisionEstado } from '../types';
+import { Printer, MessageCircle, ArrowLeft, ShieldCheck, Mail, Phone, Calendar, User, Wrench, AlertTriangle, CheckCircle, Info, Send, Share2, ClipboardSignature, PenTool } from 'lucide-react';
 import { getThemeClasses } from '../lib/theme';
+import SignaturePad from './SignaturePad';
 
 interface RevisionReportProps {
   revision: Revision;
   onBack: () => void;
   settings?: AppSettings;
+  onSave?: (updatedRevision: Revision) => Promise<void>;
 }
 
-export default function RevisionReport({ revision, onBack, settings }: RevisionReportProps) {
+export default function RevisionReport({ revision, onBack, settings, onSave }: RevisionReportProps) {
   const [tempPhone, setTempPhone] = useState<string>(revision.clienteTelefono || '');
   const [tempEmail, setTempEmail] = useState<string>(revision.clienteEmail || '');
+  const [showSignaturePad, setShowSignaturePad] = useState<boolean>(false);
+  const [updatingStatus, setUpdatingStatus] = useState<boolean>(false);
 
   const currencySymbol = settings?.currency || '$';
   const theme = getThemeClasses(settings?.accentColor || 'emerald');
@@ -138,6 +142,46 @@ export default function RevisionReport({ revision, onBack, settings }: RevisionR
     return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
+  const handleSaveSignature = async (base64Url: string) => {
+    if (onSave) {
+      const updated = {
+        ...revision,
+        firmaCliente: base64Url,
+      };
+      await onSave(updated);
+    }
+    setShowSignaturePad(false);
+  };
+
+  const handleClearSignature = async () => {
+    if (window.confirm('¿Desea borrar la firma registrada del cliente?')) {
+      if (onSave) {
+        const updated = {
+          ...revision,
+          firmaCliente: undefined,
+        };
+        await onSave(updated);
+      }
+    }
+  };
+
+  const handleStatusChange = async (newStatus: RevisionEstado) => {
+    setUpdatingStatus(true);
+    try {
+      if (onSave) {
+        const updated = {
+          ...revision,
+          estado: newStatus,
+        };
+        await onSave(updated);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
   return (
     <div id="revision-report-container" className="max-w-4xl mx-auto py-5 px-1 animate-fade-in text-left">
       
@@ -162,6 +206,84 @@ export default function RevisionReport({ revision, onBack, settings }: RevisionR
           </button>
         </div>
       </div>
+
+      {/* Quick Status Control & Desktop/Mobile Signature Panel (Hidden in print) */}
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 print:hidden animate-fade-in">
+        {/* Status Dropdown Box */}
+        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-xs uppercase tracking-wider mb-1">
+              <ShieldCheck className="h-4.5 w-4.5 text-emerald-600" />
+              <span>Estado de Gestión de la Revisión</span>
+            </div>
+            <p className="text-[11px] text-slate-500 font-semibold">Cambia el estado actual para hacer seguimiento en tu planilla.</p>
+          </div>
+          <div className="relative">
+            <select
+              value={revision.estado || 'pendiente'}
+              onChange={(e) => handleStatusChange(e.target.value as RevisionEstado)}
+              disabled={updatingStatus}
+              className="w-full px-3.5 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold focus:ring-2 focus:ring-emerald-500 text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="pendiente">Pendiente (Sólo Inspección / Sin enviar)</option>
+              <option value="en_proceso">En Proceso de Reparación / Taller</option>
+              <option value="presupuesto_enviado">Presupuesto Enviado (Seguimiento)</option>
+              <option value="cliente_captado">Cliente Captado (Trabajo Aceptado ✓)</option>
+              <option value="no_interesado">No Interesado / Rechazado</option>
+            </select>
+            {updatingStatus && (
+              <span className="absolute right-3 top-3.5 h-1.5 w-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+            )}
+          </div>
+        </div>
+
+        {/* Client Screen Signature Prompt Box */}
+        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-xs uppercase tracking-wider mb-1">
+              <ClipboardSignature className="h-4.5 w-4.5 text-emerald-600" />
+              <span>Autorización con Firma Digital</span>
+            </div>
+            <p className="text-[11px] text-slate-500 font-semibold">Haz que el cliente firme directamente con el dedo en tu celular o tablet.</p>
+          </div>
+          <div>
+            {revision.firmaCliente ? (
+              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 p-2.5 rounded-xl">
+                <span className="text-xs font-black text-emerald-800 uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Firmado con Éxito ✓
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearSignature}
+                  className="text-[10px] text-rose-600 hover:text-rose-800 font-extrabold underline transition-all cursor-pointer"
+                >
+                  Borrar firma
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowSignaturePad(true)}
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold rounded-xl shadow transition-all active:scale-95 cursor-pointer border border-slate-850"
+              >
+                <PenTool className="h-4 w-4 text-emerald-400" />
+                <span>✍️ Firmar Trabajo Ahora en Pantalla</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Signature Pad Modal Overlay */}
+      {showSignaturePad && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm print:hidden">
+          <SignaturePad
+            onSave={handleSaveSignature}
+            onCancel={() => setShowSignaturePad(false)}
+          />
+        </div>
+      )}
 
       {/* Dynamic Client Sharing Panel (Hidden in print) */}
       <div className="mb-6 p-5 sm:p-6 bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border border-slate-850 rounded-2xl text-white shadow-xl animate-fade-in print:hidden">
@@ -413,8 +535,32 @@ export default function RevisionReport({ revision, onBack, settings }: RevisionR
             <p className="text-slate-700 font-bold">Certificado por Técnico:</p>
             <p className="text-slate-500 mt-1">{revision.tecnico || settings?.workshopName || 'Taller AutoDiag'}</p>
           </div>
-          <div className="text-center sm:text-right">
-            <div className="border-b border-slate-300 w-44 mx-auto sm:ml-auto mb-2 text-slate-350"></div>
+          <div className="text-center sm:text-right flex flex-col items-center sm:items-end">
+            {revision.firmaCliente ? (
+              <div className="flex flex-col items-center sm:items-end animate-fade-in">
+                <img 
+                  src={revision.firmaCliente} 
+                  alt="Firma del Cliente" 
+                  className="h-14 w-auto object-contain border-b border-slate-200 mb-1 max-w-[180px] bg-slate-50/50 p-1 rounded"
+                />
+                <p className="text-emerald-600 font-extrabold text-[9px] uppercase tracking-wider mb-1 pr-1 print:hidden">
+                  ✓ Firmado Digitalmente
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="border-b border-dashed border-slate-300 w-44 mx-auto sm:ml-auto mb-2 h-10 flex items-center justify-center text-slate-350">
+                  <span className="text-[10px] text-slate-400 font-bold print:hidden">Pendiente de firma</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSignaturePad(true)}
+                  className="mb-2 text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-755 font-black px-3 py-1.5 rounded-lg border border-emerald-200 print:hidden cursor-pointer shadow-sm active:scale-95 transition-all"
+                >
+                  ✍️ Firmar ahora en Pantalla
+                </button>
+              </>
+            )}
             <p className="text-slate-450 leading-none">Firma / Sello de Recepción</p>
             <p className="text-[9px] text-slate-400 mt-1">Talleres Oficiales {settings?.workshopName || 'AutoDiag'}</p>
           </div>

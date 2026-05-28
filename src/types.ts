@@ -43,6 +43,7 @@ export interface Revision {
   tecnico: string;
   estado: RevisionEstado;
   notasInternas: string;
+  firmaCliente?: string; // Firma digitalizada en base64
 }
 
 export interface SpreadsheetConfig {
