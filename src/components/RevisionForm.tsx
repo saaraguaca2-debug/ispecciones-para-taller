@@ -133,30 +133,26 @@ export default function RevisionForm({
     
     if (problemSystems.length === 0) {
       setDiagnosticoGeneral("Vehículo en muy buenas condiciones generales tras inspección de seguridad.");
-      setDetallesPresupuesto("No se requieren reparaciones urgentes.");
-      setPresupuestoEstimado(0);
+      setDetallesPresupuesto("No se requieren reparaciones de seguridad.");
       return;
     }
 
     let diagLines = "Se realizó la inspección de seguridad gratuita. Se detectaron los siguientes puntos:\n";
     let budgetLines = "Desglose tentativo de reparaciones de seguridad sugeridas:\n";
-    let calculatedCost = 0;
 
     problemSystems.forEach(item => {
       if (item.status === 'grave') {
         diagLines += `• CRÍTICO EN ${item.name.toUpperCase()}: ${item.notes || 'Requiere intervención inmediata por seguridad.'}\n`;
-        budgetLines += `- Reparación/Sustitución de ${item.name}: $120.000 aprox (Mano de obra + repuesto nuevo)\n`;
-        calculatedCost += 120000;
+        budgetLines += `- Reparación/Sustitución de ${item.name}: [Mano de obra + repuesto]\n`;
       } else {
         diagLines += `• RECOMENDADO EN ${item.name}: ${item.notes || 'Monitoreo o mantenimiento preventivo aconsejable.'}\n`;
-        budgetLines += `- Mantenimiento/Ajuste de ${item.name}: $45.050 aprox\n`;
-        calculatedCost += 45000;
+        budgetLines += `- Mantenimiento/Ajuste de ${item.name}: [Inspección técnica]\n`;
       }
     });
 
     setDiagnosticoGeneral(diagLines.trim());
     setDetallesPresupuesto(budgetLines.trim());
-    setPresupuestoEstimado(calculatedCost);
+    // No automatic setting of presupuestoEstimado, user types the exact price manually.
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
