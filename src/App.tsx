@@ -278,10 +278,34 @@ export default function App() {
   const handleConnectAppsScript = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUrl = inputAppsScriptUrl.trim();
-    if (!cleanUrl || !cleanUrl.startsWith('https://script.google.com/')) {
+    if (!cleanUrl) {
+      setErrorAuth('Por favor ingresa la URL de tu aplicación web de Google Apps Script.');
+      return;
+    }
+    
+    // Check for Google Sheet URL copy-paste error
+    if (cleanUrl.includes('docs.google.com/spreadsheets')) {
+      setErrorAuth('⚠️ ¡Error! Has pegado el enlace de tu planilla de Google Sheets. Aquí debes pegar el enlace de la aplicación web de Google Apps Script (que termina en "/exec"). Por favor revisa las instrucciones paso a paso de abajo.');
+      return;
+    }
+
+    // Check for development server URL copy-paste error
+    if (cleanUrl.includes('/dev')) {
+      setErrorAuth('⚠️ Url de pruebas detectada. Has pegado una URL que termina en "/dev". Google bloquea por CORS las peticiones externas a este enlace. En Apps Script haz clic en "Implementar" > "Nueva implementación" (como Aplicación Web), configura el acceso para "Cualquiera" y copia la URL final que termina exclusivamente en "/exec".');
+      return;
+    }
+
+    // Check for code editor URL copy-paste error
+    if (cleanUrl.includes('/edit') || !cleanUrl.includes('/exec')) {
+      setErrorAuth('⚠️ Enlace del editor detectado. Copiaste el enlace de la pestaña del editor. Recuerda pulsar el botón azul "Implementar" > "Nueva implementación", elegir "Aplicación Web", poner acceso "Cualquiera (Anyone)" y copiar la dirección resultante que termina en "/exec".');
+      return;
+    }
+
+    if (!cleanUrl.startsWith('https://script.google.com/')) {
       setErrorAuth('Por favor ingresa una URL válida de aplicación web de Google Apps Script (Debe iniciar con https://script.google.com/)');
       return;
     }
+
     setErrorAuth(null);
     localStorage.setItem('autodiag_appsscript_url', cleanUrl);
     setAppsScriptUrl(cleanUrl);
@@ -332,11 +356,35 @@ export default function App() {
     if (appsScriptUrl) {
       try {
         setLoadingRevisions(true);
+        // Optimistically update the local react state so the list updates instantly in the dashboard!
+        setRevisions((prev) => {
+          const current = [...prev];
+          const index = current.findIndex(r => r.id === updatedRevision.id);
+          if (index !== -1) {
+            current[index] = updatedRevision;
+          } else {
+            current.unshift(updatedRevision); // Add new entries to the top
+          }
+          return current;
+        });
+
         const success = await saveRevisionAppsScript(appsScriptUrl, updatedRevision);
         if (success) {
-          // Wait for 1200ms to let Google script complete writing to Google Sheets before refreshing list
-          await new Promise(resolve => setTimeout(resolve, 1200));
-          await loadSpreadsheetData('apps_script', '');
+          // Fire background fetch, but don't let it block the UI thread since we optimistically updated!
+          (async () => {
+            // Wait for 1500ms to let Google script complete writing to Google Sheets before refreshing list
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            try {
+              const freshData = await fetchRevisionsAppsScript(appsScriptUrl);
+              setRevisions(freshData);
+              setErrorSheet(null);
+            } catch (err) {
+              console.warn('Silent read block on after-save reload:', err);
+              // Do not raise full alert, we already have our local optimistic update which works perfectly!
+              setErrorSheet('No se pudo descargar el historial desde Google. Comprueba si estás conectado en varias cuentas de Google o si el script está autorizado.');
+            }
+          })();
+
           setEditingRevision(null);
           setActiveTab('revisions');
         } else {
@@ -382,11 +430,23 @@ export default function App() {
     if (appsScriptUrl) {
       try {
         setLoadingRevisions(true);
+        // Optimistically remove the deleted record from the state immediately
+        setRevisions(prev => prev.filter(r => r.id !== revisionId));
+
         const success = await deleteRevisionAppsScript(appsScriptUrl, revisionId);
         if (success) {
-          // Wait for 1200ms to allow Google script process to complete before refreshing
-          await new Promise(resolve => setTimeout(resolve, 1200));
-          await loadSpreadsheetData('apps_script', '');
+          // Perform silent background reload without blocking the user interface
+          (async () => {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            try {
+              const freshData = await fetchRevisionsAppsScript(appsScriptUrl);
+              setRevisions(freshData);
+              setErrorSheet(null);
+            } catch (err) {
+              console.warn('Silent read block on after-delete reload:', err);
+              setErrorSheet('No se pudo descargar el historial desde Google. Comprueba si estás conectado en varias cuentas de Google o si el script está autorizado.');
+            }
+          })();
         } else {
           alert('La Macro de Apps Script reportó un fallo al eliminar.');
         }
@@ -432,97 +492,7 @@ export default function App() {
       );
     }
 
-    if (errorSheet) {
-      return (
-        <div className="max-w-3xl mx-auto py-8 p-6 sm:p-8 bg-slate-900 border border-slate-800 rounded-3xl text-slate-100 text-left shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500"></div>
-
-          <div className="flex items-start gap-4 mb-6">
-            <span className="p-3.5 bg-rose-950/50 border border-rose-900 text-rose-450 rounded-2xl shrink-0">
-              <AlertTriangle className="h-7 w-7 animate-pulse text-rose-500" />
-            </span>
-            <div>
-              <span className="text-[10px] uppercase font-black text-rose-400 tracking-wider bg-rose-950/60 px-2.5 py-1 rounded-full border border-rose-900/40">
-                Fallo de Conexión o CORS
-              </span>
-              <h4 className="text-xl font-black text-white tracking-tight mt-1">Conexión con Google Sheets fallida</h4>
-            </div>
-          </div>
-
-          <p className="text-xs text-slate-400 leading-relaxed mb-6 font-medium">
-            El navegador recibió un bloqueo al comunicarse con Google Apps Script. Esto suele pasar cuando no se completó la autorización de los permisos de Google, o la Macro no está configurada para el acceso de "Cualquiera".
-          </p>
-
-          <div className="bg-slate-950/80 border border-slate-850 p-4 rounded-xl space-y-3.5 mb-6 text-xs text-slate-350 leading-relaxed font-medium">
-            <h5 className="text-[10px] uppercase font-black text-slate-300 tracking-wider flex items-center gap-1.5 border-b border-slate-850 pb-2">
-              <Info className="h-4 w-4 text-emerald-500 shrink-0" />
-              <span>GUÍA RÁPIDA DE RESOLUCIÓN DE PERMISOS Google:</span>
-            </h5>
-            <ul className="space-y-3">
-              <li className="flex gap-2.5">
-                <span className="text-emerald-500 font-extrabold shrink-0">1.</span>
-                <span><strong>¿Aprobaste la Autorización?:</strong> Al publicar en Apps Script, Google abre una ventana flotante. Tienes que pulsar en <strong>"Autorizar acceso"</strong>, entrar con tu cuenta, pulsar en <strong>Configuraciones Avanzadas</strong> (abajo en pequeñito) y en <strong>proceder a "Proyecto sin título (no seguro)"</strong>. Sin este paso, Google bloqueará el acceso.</span>
-              </li>
-              <li className="flex gap-2.5">
-                <span className="text-emerald-500 font-extrabold shrink-0">2.</span>
-                <span><strong>¿Acceso público o privado?:</strong> En Apps Script, dale a <strong>Implementar (Deploy)</strong> &gt; <strong>Administrar implementaciones</strong> o Nueva implementación. La opción <strong>"Quién tiene acceso" (Who has access)</strong> debe estar obligatoriamente configurada en <strong>"Cualquiera" (Anyone)</strong>. Si pones "Solo Yo", la web no podrá guardar nada.</span>
-              </li>
-              <li className="flex gap-2.5">
-                <span className="text-emerald-500 font-extrabold shrink-0">3.</span>
-                <span><strong>¿Copiasta la URL correcta ?:</strong> Debe ser la <strong>URL de aplicación web</strong> que termina en <code className="bg-slate-900 text-emerald-400 font-mono px-1 py-0.5 rounded text-[10px] select-all">/exec</code>. No sirve pegar la URL del editor ni la de la planilla Google Sheet.</span>
-              </li>
-            </ul>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-800">
-            <button
-              onClick={() => {
-                setErrorSheet(null);
-                loadSpreadsheetData(sheetConfig?.id || 'apps_script', token || '');
-              }}
-              className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl cursor-pointer flex justify-center items-center gap-2 transition-all hover:scale-[1.01]"
-            >
-              <Activity className="h-4 w-4 animate-pulse" />
-              <span>Reintentar Conexión</span>
-            </button>
-            <button
-              onClick={() => {
-                setUseLocalFallback(true);
-                localStorage.setItem('autodiag_use_local_fallback', 'true');
-                setErrorSheet(null);
-                setSheetConfig({
-                  id: 'local_database',
-                  title: 'Base de Datos Local (Navegador)',
-                  url: 'local'
-                });
-                const localData = loadLocalRevisions();
-                setRevisions(localData);
-              }}
-              className="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-black text-xs rounded-xl cursor-pointer flex justify-center items-center gap-2 transition-all"
-            >
-              <Sparkles className="h-4 w-4 text-amber-400" />
-              <span>Trabajar en Modo Local Temporal</span>
-            </button>
-            <button
-              onClick={() => {
-                setSheetConfig(null);
-                setAppsScriptUrl(null);
-                localStorage.removeItem('autodiag_sheet_config');
-                localStorage.removeItem('autodiag_appsscript_url');
-                localStorage.removeItem('autodiag_use_local_fallback');
-                setUseLocalFallback(false);
-                setErrorSheet(null);
-                setOnboardingView('setup');
-                setNeedsAuth(true);
-              }}
-              className="px-4 py-3 border border-slate-750 hover:bg-slate-900 text-slate-400 hover:text-white font-bold text-xs rounded-xl cursor-pointer transition-all"
-            >
-              Modificar URL
-            </button>
-          </div>
-        </div>
-      );
-    }
+    // Read errors are now displayed gracefully as a collapsible banner above the dashboard rather than hijacking the screen.
 
     switch (activeTab) {
       case 'dashboard':
@@ -603,91 +573,105 @@ export default function App() {
 
   // Login Onboarding Form Canvas
   if (needsAuth) {
-    const masterAppsScriptCode = `function doGet(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+    const masterAppsScriptCode = `function getOrCreateSheet(ss) {
   var sheet = ss.getSheetByName("Revisiones");
-  
-  // Si la pestaña no existe, la creamos e inicializamos
   if (!sheet) {
     sheet = ss.insertSheet("Revisiones");
   }
-  
-  var headers = [
-    "ID", "Fecha", "Nombre Cliente", "Teléfono", "Email", 
-    "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
-    "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
-    "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
-    "Estado", "Notas Internas"
-  ];
-  
-  var dataRange = sheet.getDataRange();
-  var values = dataRange.getValues();
-  
-  // Si está vacía o el primer valor no es "ID", escribimos los encabezados obligatorios
-  if (values.length === 0 || values[0].length === 0 || !values[0][0] || values[0][0] !== "ID") {
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    values = sheet.getDataRange().getValues(); // Recargar datos actualizados
-  }
-  
-  if (values.length <= 1) {
-    return ContentService.createTextOutput(JSON.stringify([]))
-      .setMimeType(ContentService.MimeType.JSON)
-      .setHeader("Access-Control-Allow-Origin", "*");
-  }
-  
-  var revisions = [];
-  for (var i = 1; i < values.length; i++) {
-    var row = values[i];
-    if (!row[0]) continue;
-    
-    var checklist = [];
-    try {
-      if (row[11]) {
-        checklist = JSON.parse(row[11]);
-      }
-    } catch(err) {
-      checklist = [];
+  return sheet;
+}
+
+function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: "Vínculo de hoja inválido: Este script está ejecutándose de forma independiente. Asegúrate de abrir tu Hoja de Cálculo de Google, ir a 'Extensiones' > 'Apps Script' y pegar el código allí para que se vincule automáticamente."
+      })).setMimeType(ContentService.MimeType.JSON);
     }
     
-    revisions.push({
-      id: String(row[0]),
-      fecha: String(row[1] || ''),
-      clienteNombre: String(row[2] || ''),
-      clienteTelefono: String(row[3] || ''),
-      clienteEmail: String(row[4] || ''),
-      vehiculoPlaca: String(row[5] || ''),
-      vehiculoMarca: String(row[6] || ''),
-      vehiculoModelo: String(row[7] || ''),
-      vehiculoAnio: String(row[8] || ''),
-      vehiculoKilometraje: String(row[9] || ''),
-      motivo: String(row[10] || ''),
-      checklist: checklist,
-      diagnosticoGeneral: String(row[12] || ''),
-      presupuestoEstimado: Number(row[13]) || 0,
-      detallesPresupuesto: String(row[14] || ''),
-      tecnico: String(row[15] || ''),
-      estado: String(row[16] || 'pendiente'),
-      notasInternas: String(row[17] || '')
-    });
+    var sheet = getOrCreateSheet(ss);
+    
+    var headers = [
+      "ID", "Fecha", "Nombre Cliente", "Teléfono", "Email", 
+      "Placa", "Marca", "Modelo", "Año", "Kilometraje", 
+      "Motivo Revisión", "Checklist (JSON)", "Diagnóstico General", 
+      "Presupuesto Estimado ($)", "Detalles Presupuesto", "Técnico", 
+      "Estado", "Notas Internas"
+    ];
+    
+    var dataRange = sheet.getDataRange();
+    var values = dataRange.getValues();
+    
+    // Si está vacía o el primer valor no es "ID", escribimos los encabezados obligatorios
+    if (values.length === 0 || values[0].length === 0 || !values[0][0] || values[0][0] !== "ID") {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      values = sheet.getDataRange().getValues(); // Recargar datos actualizados
+    }
+    
+    if (values.length <= 1) {
+      return ContentService.createTextOutput(JSON.stringify([]))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var revisions = [];
+    for (var i = 1; i < values.length; i++) {
+      var row = values[i];
+      if (!row[0]) continue;
+      
+      var checklist = [];
+      try {
+        if (row[11]) {
+          checklist = JSON.parse(row[11]);
+        }
+      } catch(err) {
+        checklist = [];
+      }
+      
+      revisions.push({
+        id: String(row[0]),
+        fecha: String(row[1] || ''),
+        clienteNombre: String(row[2] || ''),
+        clienteTelefono: String(row[3] || ''),
+        clienteEmail: String(row[4] || ''),
+        vehiculoPlaca: String(row[5] || ''),
+        vehiculoMarca: String(row[6] || ''),
+        vehiculoModelo: String(row[7] || ''),
+        vehiculoAnio: String(row[8] || ''),
+        vehiculoKilometraje: String(row[9] || ''),
+        motivo: String(row[10] || ''),
+        checklist: checklist,
+        diagnosticoGeneral: String(row[12] || ''),
+        presupuestoEstimado: Number(row[13]) || 0,
+        detallesPresupuesto: String(row[14] || ''),
+        tecnico: String(row[15] || ''),
+        estado: String(row[16] || 'pendiente'),
+        notasInternas: String(row[17] || '')
+      });
+    }
+    return ContentService.createTextOutput(JSON.stringify(revisions))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: "Error interno ejecutando doGet en Google de tu plantilla: " + err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
   }
-  return ContentService.createTextOutput(JSON.stringify(revisions))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeader("Access-Control-Allow-Origin", "*");
 }
 
 function doPost(e) {
   var responseRaw = { success: false, error: "Invalid action" };
   try {
-    var postData = JSON.parse(e.postData.contents);
-    var action = postData.action;
-    var revision = postData.revision;
-    var revisionId = postData.revisionId;
-    
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName("Revisiones");
-    if (!sheet) {
-      sheet = ss.insertSheet("Revisiones");
+    if (!ss) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: "Vínculo de hoja inválido: Este script está ejecutándose de forma independiente. Por favor abre tu Hoja de Cálculo, ve a 'Extensiones' > 'Apps Script' y pega el código allí."
+      })).setMimeType(ContentService.MimeType.JSON);
     }
+    
+    var sheet = getOrCreateSheet(ss);
     
     var headers = [
       "ID", "Fecha", "Nombre Cliente", "Teléfono", "Email", 
@@ -761,8 +745,7 @@ function doPost(e) {
     responseRaw = { success: false, error: err.toString() };
   }
   return ContentService.createTextOutput(JSON.stringify(responseRaw))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeader("Access-Control-Allow-Origin", "*");
+    .setMimeType(ContentService.MimeType.JSON);
 }`;
 
     const handleCopyCode = () => {
@@ -925,11 +908,37 @@ function doPost(e) {
 
           <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-2 flex items-center gap-2">
             <Settings className="h-6 w-6 text-emerald-600 shrink-0" />
-            <span>Configuración de Google Sheets</span>
+            <span>Sincronizar Datos con Google</span>
           </h2>
           <p className="text-slate-500 text-xs leading-relaxed mb-6">
             Conecta la planilla de Google de tu taller. Los datos se transmitirán directamente desde la aplicación a tu Google Drive de forma privada y sin intermediarios.
           </p>
+
+          {/* Visual switcher tabs */}
+          <div className="flex border-b border-slate-200 mb-6">
+            <button
+              type="button"
+              onClick={() => setLoginTab('google')}
+              className={`flex-grow pb-3 text-xs font-bold transition-all border-b-2 text-center cursor-pointer ${
+                loginTab === 'google'
+                  ? 'border-emerald-500 text-emerald-600 font-extrabold'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              🔑 Conexión Directa Google (Fácil y Rápido)
+            </button>
+            <button
+              type="button"
+              onClick={() => setLoginTab('appsscript')}
+              className={`flex-grow pb-3 text-xs font-bold transition-all border-b-2 text-center cursor-pointer ${
+                loginTab === 'appsscript'
+                  ? 'border-emerald-500 text-emerald-600 font-extrabold'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              ⚙ Conexión Apps Script
+            </button>
+          </div>
 
           {errorAuth && (
             <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-855 text-xs flex gap-2 font-semibold">
@@ -939,30 +948,51 @@ function doPost(e) {
           )}
 
           <div className="space-y-5">
-            <p className="text-xs text-slate-500 leading-relaxed font-medium">
-              Pega la URL del ejecutor de <strong>Google Apps Script Web App</strong> para vincular tu planilla de control en segundos.
-            </p>
+            {loginTab === 'google' && (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                  <strong>Recomendado:</strong> Inicia sesión de forma directa. Podrás elegir tu planilla existente llamada <code className="bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded font-mono font-bold">inspecciones SAA</code>, o crear una nueva en Drive para guardar todo al instante sin macros.
+                </p>
+                
+                <button
+                  type="button"
+                  onClick={handleLogin}
+                  className="w-full bg-slate-900 duration-150 hover:bg-slate-800 text-white font-black py-4 px-4 rounded-xl text-xs shadow-md active:scale-95 cursor-pointer flex justify-center items-center gap-2 border border-slate-800"
+                >
+                  <LogIn className="w-4.5 h-4.5 text-emerald-400" />
+                  <span>Iniciar con Google y Conectar Sheet</span>
+                </button>
+              </div>
+            )}
 
-            <form onSubmit={handleConnectAppsScript} className="space-y-3">
-              <input
-                type="text"
-                placeholder="Pegue la URL ejecutora de Apps Script (debe iniciar con https://script.google.com/.../exec)"
-                value={inputAppsScriptUrl}
-                onChange={(e) => setInputAppsScriptUrl(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800 font-semibold"
-              />
-              
-              <button
-                type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 px-4 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer flex justify-center items-center gap-2"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                <span>Establecer Conexión de Datos</span>
-              </button>
-            </form>
+            {loginTab === 'appsscript' && (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                  Si no deseas iniciar sesión con tu cuenta, pega la URL del ejecutor de la aplicación web que creaste en tu Google Apps Script (que termina en <code className="font-mono bg-slate-100 text-rose-600 px-1 py-0.5 rounded">/exec</code>).
+                </p>
+
+                <form onSubmit={handleConnectAppsScript} className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Pegue la URL ejecutora de Apps Script (debe iniciar con https://script.google.com/.../exec)"
+                    value={inputAppsScriptUrl}
+                    onChange={(e) => setInputAppsScriptUrl(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800 font-semibold"
+                  />
+                  
+                  <button
+                    type="submit"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 px-4 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer flex justify-center items-center gap-2"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Establecer Conexión de Datos</span>
+                  </button>
+                </form>
+              </div>
+            )}
 
             <div className="pt-2 text-center border-t border-slate-100 flex flex-col gap-2">
-              <span className="text-slate-400 text-[9px] uppercase tracking-wider font-extrabold">O si prefieres probar la app sin sincronizar hoy:</span>
+              <span className="text-slate-400 text-[9px] uppercase tracking-wider font-extrabold font-mono">O si prefieres probar la app de forma estática ahora:</span>
               <button
                 type="button"
                 onClick={() => {
@@ -1099,6 +1129,85 @@ function doPost(e) {
             >
               Conectar Google Sheets
             </button>
+          </div>
+        )}
+
+        {sheetConfig && errorSheet && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-3xl p-5 text-slate-800 shadow-sm transition-all text-xs font-semibold">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span className="p-2 bg-amber-100 rounded-xl text-amber-700 shrink-0 block">
+                  <AlertTriangle className="h-5 w-5 animate-pulse text-amber-600" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-black text-amber-950 uppercase tracking-tight">⚠️ Advertencia de Sincronización (Solo Lectura)</h4>
+                  <p className="text-slate-600 text-xs leading-relaxed mt-1">
+                    ¡Tu planilla de Google **se está actualizando correctamente**! El guardado y eliminación de datos funcionan con éxito, pero tu navegador tiene un bloqueo temporal para descargar y listar el historial de revisiones (revisa los detalles abajo para solucionarlo rápido).
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setErrorSheet(null)}
+                className="text-slate-400 hover:text-slate-600 font-extrabold text-base px-1.5 py-0.5 rounded cursor-pointer shrink-0"
+              >
+                ×
+              </button>
+            </div>
+
+            <details className="mt-3.5 group border-t border-amber-200 px-1 pt-3.5">
+              <summary className="text-[10px] font-black text-amber-705 hover:text-amber-900 cursor-pointer uppercase select-none flex items-center gap-1.5 focus:outline-none">
+                <span>¿Por qué pasa esto en Google y cómo solucionarlo en 1 minuto?</span>
+                <span className="transition-transform group-open:rotate-90">➔</span>
+              </summary>
+              <div className="mt-3 text-xs text-slate-700 leading-relaxed space-y-3 bg-white/70 p-4 rounded-2xl border border-amber-200/30">
+                <p>
+                  Google restringe los accesos de lectura (<code className="font-mono bg-amber-100 text-amber-800 px-1 py-0.5 rounded text-[11px]">GET</code>) en el navegador en ciertos casos bajo su protocolo CORS. Sigue estos pasos prácticos:
+                </p>
+                <ol className="list-decimal pl-5 space-y-2 font-medium">
+                  <li>
+                    <strong>Inicia una Ventana de Incógnito (Recomendado):</strong> Si tienes iniciadas múltiples cuentas de Gmail/Google en tu navegador, Google confunde el permiso del script y lo bloquea temporalmente. Abre esta aplicación web en una <strong>ventana de incógnito</strong> para solucionarlo de inmediato.
+                  </li>
+                  <li>
+                    <strong>Vuelve a publicar el Apps Script:</strong> Entra a tu hoja de cálculo, ve a <strong>Extensiones &gt; Apps Script</strong> y haz clic en <strong>Implementar &gt; Nueva implementación</strong>. Elige tipo <strong>"Aplicación Web"</strong> y configura estrictamente lo siguiente:
+                    <ul className="list-disc pl-5 mt-1 space-y-0.5 text-[11px] text-slate-600">
+                      <li><strong>Ejecutar como:</strong> Yo (tuemail@gmail.com)</li>
+                      <li><strong>Quién tiene acceso:</strong> Cualquier persona (Anyone)</li>
+                    </ul>
+                  </li>
+                  <li>
+                    <strong>Autoriza la ejecución del script:</strong> En tu editor de Apps Script, selecciona la función <code className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.5 rounded text-[10px]">doGet</code> arriba y haz un clic en <strong>Ejecutar</strong>. Google abrirá un diálogo emergente de seguridad para que autorices formalmente la conexión desde tu cuenta de Google.
+                  </li>
+                </ol>
+                <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    onClick={() => {
+                      setErrorSheet(null);
+                      loadSpreadsheetData(sheetConfig?.id || 'apps_script', token || '');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[10px] uppercase rounded-xl transition-all cursor-pointer shadow-sm"
+                  >
+                    🔄 Reintentar Descarga
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUseLocalFallback(true);
+                      localStorage.setItem('autodiag_use_local_fallback', 'true');
+                      setErrorSheet(null);
+                      setSheetConfig({
+                        id: 'local_database',
+                        title: 'Base de Datos Local (Navegador)',
+                        url: 'local'
+                      });
+                      const localData = loadLocalRevisions();
+                      setRevisions(localData);
+                    }}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 font-extrabold text-[10px] uppercase rounded-xl transition-all cursor-pointer"
+                  >
+                    Trabajar en Modo Local (Probar App)
+                  </button>
+                </div>
+              </div>
+            </details>
           </div>
         )}
 

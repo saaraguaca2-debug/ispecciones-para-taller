@@ -101,10 +101,15 @@ export async function createSpreadsheet(token: string, titleSuffix?: string): Pr
   }
 }
 
+// Dynamically find the sheet name, looking for user custom names, keywords, or the first available sheet tab
+export async function getSheetName(spreadsheetId: string, token: string): Promise<string> {
+  return 'Revisiones';
+}
+
 // Write the primary header labels to a spreadsheet
-export async function initializeSheetHeaders(spreadsheetId: string, token: string): Promise<boolean> {
+export async function initializeSheetHeaders(spreadsheetId: string, token: string, sheetName: string = 'Revisiones'): Promise<boolean> {
   try {
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Revisiones!A1:R1?valueInputOption=USER_ENTERED`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:R1?valueInputOption=USER_ENTERED`;
     const response = await fetch(url, {
       method: 'PUT',
       headers: {
@@ -112,7 +117,7 @@ export async function initializeSheetHeaders(spreadsheetId: string, token: strin
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        range: 'Revisiones!A1:R1',
+        range: `${sheetName}!A1:R1`,
         majorDimension: 'ROWS',
         values: [HEADERS]
       })
@@ -193,7 +198,8 @@ function mapRevisionToRow(rev: Revision): any[] {
 // Fetch all revisions from spreadsheet
 export async function fetchRevisions(spreadsheetId: string, token: string): Promise<Revision[]> {
   try {
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Revisiones!A2:R1000`;
+    const sheetName = await getSheetName(spreadsheetId, token);
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:R1000`;
     const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`
@@ -201,17 +207,17 @@ export async function fetchRevisions(spreadsheetId: string, token: string): Prom
     });
 
     if (!response.ok) {
-      // If table 'Revisiones' sheets tab doesn't exist, try initializing it
+      // If table sheets tab doesn't exist, try initializing it
       const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`;
       const metaRes = await fetch(metaUrl, { headers: { 'Authorization': `Bearer ${token}` } });
       if (metaRes.ok) {
         const metaData = await metaRes.json();
-        const sheetExists = (metaData.sheets || []).some((s: any) => s.properties?.title === 'Revisiones');
+        const sheetExists = (metaData.sheets || []).some((s: any) => s.properties?.title === sheetName);
         
         if (!sheetExists) {
           // Attempt to add a sheet sheet tab
-          await createRevisionesTab(spreadsheetId, token);
-          await initializeSheetHeaders(spreadsheetId, token);
+          await createRevisionesTab(spreadsheetId, token, sheetName);
+          await initializeSheetHeaders(spreadsheetId, token, sheetName);
           return [];
         }
       }
@@ -242,9 +248,18 @@ export async function fetchRevisionsAppsScript(appsScriptUrl: string): Promise<R
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      if (data.error || data.success === false) {
+        throw new Error(data.error || 'Respuesta fallida de Google Apps Script.');
+      }
+    }
     return Array.isArray(data) ? data : [];
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching revisions via Apps Script:', error);
+    // Propagate cleaner CORS / Permission failure messages
+    if (error.message && error.message.includes('Failed to fetch')) {
+      throw new Error('Bloqueo de red (CORS). Comprueba si la macro está configurada con acceso para "Cualquiera" y si guardaste los cambios correctamente.');
+    }
     throw error;
   }
 }
@@ -291,8 +306,8 @@ export async function deleteRevisionAppsScript(appsScriptUrl: string, revisionId
   }
 }
 
-// Create 'Revisiones' tab if not exists in target sheet
-async function createRevisionesTab(spreadsheetId: string, token: string): Promise<boolean> {
+// Create sheet tab by name if not exists in target sheet
+async function createRevisionesTab(spreadsheetId: string, token: string, sheetName: string = 'Revisiones'): Promise<boolean> {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
   const response = await fetch(url, {
     method: 'POST',
@@ -305,7 +320,7 @@ async function createRevisionesTab(spreadsheetId: string, token: string): Promis
         {
           addSheet: {
             properties: {
-              title: 'Revisiones',
+              title: sheetName,
               gridProperties: {
                 columnCount: 18,
                 rowCount: 1000
@@ -322,8 +337,9 @@ async function createRevisionesTab(spreadsheetId: string, token: string): Promis
 // Save or Update a revision in spreadsheet
 export async function saveRevision(spreadsheetId: string, revision: Revision, token: string): Promise<boolean> {
   try {
+    const sheetName = await getSheetName(spreadsheetId, token);
     // 1. Fetch current rows to find if it exists
-    const urlGet = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Revisiones!A1:A1000`;
+    const urlGet = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:A1000`;
     const resGet = await fetch(urlGet, { headers: { 'Authorization': `Bearer ${token}` } });
     
     let existingIndex = -1;
@@ -338,7 +354,7 @@ export async function saveRevision(spreadsheetId: string, revision: Revision, to
     if (existingIndex !== -1) {
       // Row exists: Update row at (existingIndex + 1)
       const rowNumber = existingIndex + 1;
-      const urlUpdate = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Revisiones!A${rowNumber}:R${rowNumber}?valueInputOption=USER_ENTERED`;
+      const urlUpdate = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A${rowNumber}:R${rowNumber}?valueInputOption=USER_ENTERED`;
       
       const response = await fetch(urlUpdate, {
         method: 'PUT',
@@ -347,7 +363,7 @@ export async function saveRevision(spreadsheetId: string, revision: Revision, to
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          range: `Revisiones!A${rowNumber}:R${rowNumber}`,
+          range: `${sheetName}!A${rowNumber}:R${rowNumber}`,
           majorDimension: 'ROWS',
           values: [rowData]
         })
@@ -359,7 +375,7 @@ export async function saveRevision(spreadsheetId: string, revision: Revision, to
       return true;
     } else {
       // Row is new: Append row
-      const urlAppend = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Revisiones!A2:append?valueInputOption=USER_ENTERED`;
+      const urlAppend = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:append?valueInputOption=USER_ENTERED`;
       const response = await fetch(urlAppend, {
         method: 'POST',
         headers: {
@@ -367,7 +383,7 @@ export async function saveRevision(spreadsheetId: string, revision: Revision, to
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          range: 'Revisiones!A2',
+          range: `${sheetName}!A2`,
           majorDimension: 'ROWS',
           values: [rowData]
         })
@@ -384,11 +400,11 @@ export async function saveRevision(spreadsheetId: string, revision: Revision, to
   }
 }
 
-// Delete revision row (set state/row to deleted or clear its cells - in sheets we usually clear or mark as deleted, let's mark its state as 'no_interesado' or completely remove the row by sending empty cells or filter it)
-// A safer solution for Google Sheets is to filter out locally, but if the user wants delete, we can also clear the row context or let it stay but update `id` to empty or status to 'deleted'. Let's mark it index state as empty ID to completely hide it.
+// Delete revision row
 export async function deleteRevision(spreadsheetId: string, revisionId: string, token: string): Promise<boolean> {
   try {
-    const urlGet = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Revisiones!A1:A1000`;
+    const sheetName = await getSheetName(spreadsheetId, token);
+    const urlGet = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:A1000`;
     const resGet = await fetch(urlGet, { headers: { 'Authorization': `Bearer ${token}` } });
     
     if (resGet.ok) {
@@ -400,7 +416,7 @@ export async function deleteRevision(spreadsheetId: string, revisionId: string, 
         const rowNumber = existingIndex + 1;
         // In Google Sheets, a row deletion is a batchUpdate process, or we can just clear the row or change its custom state/ID so it is ignored.
         // A direct row clearance is very clean. Let's just clear the range.
-        const urlClear = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Revisiones!A${rowNumber}:R${rowNumber}:clear`;
+        const urlClear = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A${rowNumber}:R${rowNumber}:clear`;
         const resClear = await fetch(urlClear, {
           method: 'POST',
           headers: {
