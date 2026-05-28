@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Revision, ChecklistItem, AppSettings } from '../types';
-import { Printer, MessageCircle, ArrowLeft, ShieldCheck, Mail, Phone, Calendar, User, Wrench, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { Printer, MessageCircle, ArrowLeft, ShieldCheck, Mail, Phone, Calendar, User, Wrench, AlertTriangle, CheckCircle, Info, Send, Share2 } from 'lucide-react';
 import { getThemeClasses } from '../lib/theme';
 
 interface RevisionReportProps {
@@ -9,6 +10,9 @@ interface RevisionReportProps {
 }
 
 export default function RevisionReport({ revision, onBack, settings }: RevisionReportProps) {
+  const [tempPhone, setTempPhone] = useState<string>(revision.clienteTelefono || '');
+  const [tempEmail, setTempEmail] = useState<string>(revision.clienteEmail || '');
+
   const currencySymbol = settings?.currency || '$';
   const theme = getThemeClasses(settings?.accentColor || 'emerald');
   const formattedBudget = (revision.presupuestoEstimado || 0).toLocaleString('es-CL');
@@ -44,7 +48,7 @@ export default function RevisionReport({ revision, onBack, settings }: RevisionR
 
   // Prefilled WhatsApp Conversion Message Template
   const generateWhatsAppLink = () => {
-    const pNumber = revision.clienteTelefono.replace(/[^0-9+]/g, ''); // Extract numbers
+    const pNumber = tempPhone.replace(/[^0-9+]/g, ''); // Extract numbers from temporary state
     const workshop = settings?.workshopName || 'AutoDiag';
     
     // Formatting a high-converting message
@@ -82,14 +86,66 @@ export default function RevisionReport({ revision, onBack, settings }: RevisionR
     return `https://wa.me/${pNumber}?text=${encodedText}`;
   };
 
+  const generateEmailLink = () => {
+    const email = tempEmail;
+    const subject = `Informe de Inspección Técnica - Vehículo ${revision.vehiculoMarca} ${revision.vehiculoModelo} (${revision.vehiculoPlaca})`;
+    const workshop = settings?.workshopName || 'AutoDiag';
+    
+    let body = `Estimado(a) ${revision.clienteNombre},\n\n`;
+    body += `Le hacemos llegar una copia del informe del diagnóstico de seguridad gratuito realizado a su vehículo en ${workshop}:\n\n`;
+    body += `🚗 VEHÍCULO: ${revision.vehiculoMarca} ${revision.vehiculoModelo}\n`;
+    body += `📟 PATENTE: ${revision.vehiculoPlaca}\n`;
+    if (revision.vehiculoKilometraje) {
+      body += `⚡ KILOMETRAJE: ${parseInt(revision.vehiculoKilometraje).toLocaleString()} KM\n`;
+    }
+    body += `📅 FECHA: ${new Intl.DateTimeFormat('es-CL', { dateStyle: 'long' }).format(new Date(revision.fecha))}\n\n`;
+    body += `----------------------------------------------------\n`;
+    body += `RESUMEN DEL DIAGNÓSTICO:\n`;
+    body += `----------------------------------------------------\n`;
+    
+    if (graves.length > 0) {
+      body += `⚠️ REPARACIONES CRÍTICAS DETECTADAS (${graves.length}):\n`;
+      graves.forEach(item => {
+        body += `  • ${item.name}: ${item.notes || 'Arreglo urgente sugerido'}\n`;
+      });
+      body += `\n`;
+    }
+
+    if (regulares.length > 0) {
+      body += `🔧 RECOMENDACIONES PREVENTIVAS (${regulares.length}):\n`;
+      regulares.forEach(item => {
+        body += `  • ${item.name}: ${item.notes || 'Mantenimiento preventivo sugerido'}\n`;
+      });
+      body += `\n`;
+    }
+
+    if (graves.length === 0 && regulares.length === 0) {
+      body += `✓ ¡Felicidades! No se detectaron fallos de seguridad o advertencias en esta inspección.\n\n`;
+    }
+
+    body += `----------------------------------------------------\n`;
+    body += `DESGLOSE Y PRESUPUESTO SUGERIDO:\n`;
+    body += `----------------------------------------------------\n`;
+    body += `💰 Presupuesto Estimado de Solución: ${currencySymbol}${formattedBudget}\n`;
+    if (revision.detallesPresupuesto) {
+      body += `\nDesglose de repuestos y mano de obra:\n${revision.detallesPresupuesto}\n`;
+    }
+    body += `\n\n¿Desea autorizar el inicio de los trabajos descritos para asegurar su tranquilidad en la conducción?\n`;
+    body += `Quedamos a su total disposición para agendar su hora de taller. ¡Muchas gracias por su confianza!\n\n`;
+    body += `Atentamente,\n`;
+    body += `${revision.tecnico || 'Equipo Técnico'} - Talleres ${workshop}`;
+    
+    return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
   return (
     <div id="revision-report-container" className="max-w-4xl mx-auto py-5 px-1 animate-fade-in text-left">
       
       {/* Return & Action bar (Disabled in print) */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 print:hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 print:hidden">
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-850 transition-colors bg-white border border-slate-200 py-1.5 px-3.5 rounded-xl cursor-pointer"
+          className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-850 transition-colors bg-white border border-slate-200 py-1.5 px-3.5 rounded-xl cursor-pointer animate-fade-in"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>Volver a revisiones</span>
@@ -99,24 +155,79 @@ export default function RevisionReport({ revision, onBack, settings }: RevisionR
           {/* Print button */}
           <button
             onClick={handlePrint}
-            className="flex-1 sm:flex-none justify-center inline-flex items-center gap-2 bg-slate-850 hover:bg-slate-950 text-white font-bold py-2 px-4.5 rounded-xl text-xs sm:text-sm shadow-sm transition-all cursor-pointer"
+            className="w-full sm:w-auto justify-center inline-flex items-center gap-2 bg-slate-850 hover:bg-slate-950 text-white font-bold py-2.5 px-5 rounded-xl text-xs sm:text-sm shadow-sm transition-all cursor-pointer"
           >
             <Printer className="h-4.5 w-4.5" />
             <span>Imprimir Informe</span>
           </button>
+        </div>
+      </div>
 
-          {/* WhatsApp redirect conversion */}
-          {revision.clienteTelefono && (
-            <a
-              href={generateWhatsAppLink()}
-              target="_blank"
-              rel="noreferrer"
-              className="flex-1 sm:flex-none justify-center inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4.5 rounded-xl text-xs sm:text-sm shadow-sm transition-all text-center"
-            >
-              <MessageCircle className="h-4.5 w-4.5 fill-current" />
-              <span>Enviar por WhatsApp</span>
-            </a>
-          )}
+      {/* Dynamic Client Sharing Panel (Hidden in print) */}
+      <div className="mb-6 p-5 sm:p-6 bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border border-slate-850 rounded-2xl text-white shadow-xl animate-fade-in print:hidden">
+        <div className="flex items-center gap-2 mb-3">
+          <Share2 className="h-5 w-5 text-emerald-400 shrink-0" />
+          <h3 className="text-sm font-black uppercase tracking-wider text-slate-100">
+            Enviar copia de inspección al cliente
+          </h3>
+        </div>
+        
+        <p className="text-xs text-slate-400 leading-relaxed mb-4">
+          Envía el diagnóstico técnico interactivo directo al cliente. Confirma o edita los datos de contacto para recalcular la copia en tiempo real antes de presionar Enviar:
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {/* Phone custom field */}
+          <div className="space-y-1 text-left">
+            <label className="text-[10px] uppercase font-bold tracking-widest text-slate-400 flex items-center gap-1.5">
+              <Phone className="h-3 w-3 text-emerald-400" />
+              <span>Número de WhatsApp (con código de país)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="Ej: +56912345678"
+              value={tempPhone}
+              onChange={(e) => setTempPhone(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-200 placeholder:text-slate-700 font-mono"
+            />
+          </div>
+
+          {/* Email custom field */}
+          <div className="space-y-1 text-left">
+            <label className="text-[10px] uppercase font-bold tracking-widest text-slate-400 flex items-center gap-1.5">
+              <Mail className="h-3 w-3 text-indigo-400" />
+              <span>Correo Electrónico (Email)</span>
+            </label>
+            <input
+              type="email"
+              placeholder="Ej: cliente@correo.com"
+              value={tempEmail}
+              onChange={(e) => setTempEmail(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none font-semibold text-slate-200 placeholder:text-slate-700 font-mono"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Whatsapp action */}
+          <a
+            href={generateWhatsAppLink()}
+            target="_blank"
+            rel="noreferrer"
+            className="flex-1 justify-center inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3 px-5 rounded-xl text-xs sm:text-sm shadow transition-all active:scale-95 text-center cursor-pointer"
+          >
+            <MessageCircle className="h-4 w-4 fill-current" />
+            <span>Enviar por WhatsApp</span>
+          </a>
+
+          {/* Email action */}
+          <a
+            href={generateEmailLink()}
+            className="flex-1 justify-center inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 px-5 rounded-xl text-xs sm:text-sm shadow transition-all active:scale-95 text-center cursor-pointer"
+          >
+            <Mail className="h-4 w-4" />
+            <span>Enviar por Correo</span>
+          </a>
         </div>
       </div>
 

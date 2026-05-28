@@ -31,7 +31,7 @@ export default function App() {
   const [useLocalFallback, setUseLocalFallback] = useState<boolean>(() => {
     return localStorage.getItem('autodiag_use_local_fallback') === 'true';
   });
-  const [loginTab, setLoginTab] = useState<'google' | 'appsscript'>('google');
+  const [loginTab, setLoginTab] = useState<'google' | 'appsscript'>('appsscript');
   const [inputAppsScriptUrl, setInputAppsScriptUrl] = useState<string>('');
   const [showInstruction, setShowInstruction] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
@@ -158,22 +158,8 @@ export default function App() {
       return;
     }
 
-    const unsubscribe = initAuth(
-      (currentUser, currentToken) => {
-        setUser(currentUser);
-        setToken(currentToken);
-        setNeedsAuth(false);
-        setLoadingAuth(false);
-      },
-      () => {
-        setUser(null);
-        setToken(null);
-        setNeedsAuth(true);
-        setLoadingAuth(false);
-      }
-    );
-
-    return () => unsubscribe();
+    setNeedsAuth(true);
+    setLoadingAuth(false);
   }, []);
 
   // 2. Manage Sheet cache configuration and fetch DB entries
@@ -663,6 +649,14 @@ function doGet(e) {
 function doPost(e) {
   var responseRaw = { success: false, error: "Invalid action" };
   try {
+    var postData = {};
+    if (e && e.postData && e.postData.contents) {
+      postData = JSON.parse(e.postData.contents);
+    }
+    var action = postData.action || "";
+    var revision = postData.revision || null;
+    var revisionId = postData.revisionId || "";
+    
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) {
       return ContentService.createTextOutput(JSON.stringify({
@@ -914,32 +908,6 @@ function doPost(e) {
             Conecta la planilla de Google de tu taller. Los datos se transmitirán directamente desde la aplicación a tu Google Drive de forma privada y sin intermediarios.
           </p>
 
-          {/* Visual switcher tabs */}
-          <div className="flex border-b border-slate-200 mb-6">
-            <button
-              type="button"
-              onClick={() => setLoginTab('google')}
-              className={`flex-grow pb-3 text-xs font-bold transition-all border-b-2 text-center cursor-pointer ${
-                loginTab === 'google'
-                  ? 'border-emerald-500 text-emerald-600 font-extrabold'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              🔑 Conexión Directa Google (Fácil y Rápido)
-            </button>
-            <button
-              type="button"
-              onClick={() => setLoginTab('appsscript')}
-              className={`flex-grow pb-3 text-xs font-bold transition-all border-b-2 text-center cursor-pointer ${
-                loginTab === 'appsscript'
-                  ? 'border-emerald-500 text-emerald-600 font-extrabold'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              ⚙ Conexión Apps Script
-            </button>
-          </div>
-
           {errorAuth && (
             <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-855 text-xs flex gap-2 font-semibold">
               <AlertTriangle className="h-4.5 w-4.5 text-rose-500 shrink-0 mt-0.5" />
@@ -948,48 +916,33 @@ function doPost(e) {
           )}
 
           <div className="space-y-5">
-            {loginTab === 'google' && (
-              <div className="space-y-4">
-                <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                  <strong>Recomendado:</strong> Inicia sesión de forma directa. Podrás elegir tu planilla existente llamada <code className="bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded font-mono font-bold">inspecciones SAA</code>, o crear una nueva en Drive para guardar todo al instante sin macros.
-                </p>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 p-3 rounded-xl">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 animate-pulse" />
+                <span className="text-xs font-black text-emerald-950 uppercase tracking-tight">Vincular con Google Sheets (Sincronizado)</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+                Pega la URL del ejecutor de la aplicación web de tu Google Apps Script (que termina en <code className="font-mono bg-slate-100 text-emerald-700 px-1.5 py-0.5 rounded text-[11px] font-bold">/exec</code>):
+              </p>
+
+              <form onSubmit={handleConnectAppsScript} className="space-y-3">
+                <input
+                  type="text"
+                  placeholder="Pegue la URL ejecutora de Apps Script (debe iniciar con https://script.google.com/.../exec)"
+                  value={inputAppsScriptUrl}
+                  onChange={(e) => setInputAppsScriptUrl(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800 font-bold"
+                />
                 
                 <button
-                  type="button"
-                  onClick={handleLogin}
-                  className="w-full bg-slate-900 duration-150 hover:bg-slate-800 text-white font-black py-4 px-4 rounded-xl text-xs shadow-md active:scale-95 cursor-pointer flex justify-center items-center gap-2 border border-slate-800"
+                  type="submit"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 px-4 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer flex justify-center items-center gap-2"
                 >
-                  <LogIn className="w-4.5 h-4.5 text-emerald-400" />
-                  <span>Iniciar con Google y Conectar Sheet</span>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Establecer Conexión de Datos</span>
                 </button>
-              </div>
-            )}
-
-            {loginTab === 'appsscript' && (
-              <div className="space-y-4">
-                <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                  Si no deseas iniciar sesión con tu cuenta, pega la URL del ejecutor de la aplicación web que creaste en tu Google Apps Script (que termina en <code className="font-mono bg-slate-100 text-rose-600 px-1 py-0.5 rounded">/exec</code>).
-                </p>
-
-                <form onSubmit={handleConnectAppsScript} className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder="Pegue la URL ejecutora de Apps Script (debe iniciar con https://script.google.com/.../exec)"
-                    value={inputAppsScriptUrl}
-                    onChange={(e) => setInputAppsScriptUrl(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800 font-semibold"
-                  />
-                  
-                  <button
-                    type="submit"
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 px-4 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer flex justify-center items-center gap-2"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>Establecer Conexión de Datos</span>
-                  </button>
-                </form>
-              </div>
-            )}
+              </form>
+            </div>
 
             <div className="pt-2 text-center border-t border-slate-100 flex flex-col gap-2">
               <span className="text-slate-400 text-[9px] uppercase tracking-wider font-extrabold font-mono">O si prefieres probar la app de forma estática ahora:</span>
